@@ -1,0 +1,83 @@
+# Interactive Zsh configuration.
+[[ -o interactive ]] || return
+
+# Homebrew completions must be present before compinit.
+if [[ -n ${HOMEBREW_PREFIX:-} ]]; then
+  fpath=("$HOMEBREW_PREFIX/share/zsh/site-functions" $fpath)
+fi
+mkdir -p "$HOME/.cache/zsh"
+autoload -Uz compinit
+compinit -d "$HOME/.cache/zsh/zcompdump"
+
+zstyle ':completion:*' menu select
+zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
+[[ -n ${LS_COLORS:-} ]] && zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
+
+HISTFILE="$HOME/.zsh_history"
+HISTSIZE=50000
+SAVEHIST=50000
+setopt SHARE_HISTORY
+setopt EXTENDED_HISTORY
+setopt HIST_IGNORE_ALL_DUPS
+setopt HIST_IGNORE_SPACE
+setopt HIST_REDUCE_BLANKS
+setopt INTERACTIVE_COMMENTS
+setopt NO_BEEP
+unsetopt CORRECT
+
+bindkey -e
+autoload -Uz up-line-or-beginning-search down-line-or-beginning-search
+zle -N up-line-or-beginning-search
+zle -N down-line-or-beginning-search
+bindkey '^[[A' up-line-or-beginning-search
+bindkey '^[[B' down-line-or-beginning-search
+
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../..'
+alias g='git'
+alias gs='git status --short --branch'
+alias gd='git diff'
+alias gl='git log --oneline --decorate --graph -20'
+alias reload='exec zsh -l'
+alias c='pbcopy'
+alias v='pbpaste'
+
+# Short, discoverable tool entry points inspired by Tobi's shell setup.
+command -v nvim >/dev/null 2>&1 && alias e='nvim' && alias n='nvim'
+command -v lazygit >/dev/null 2>&1 && alias lg='lazygit'
+command -v ast-grep >/dev/null 2>&1 && alias sg='ast-grep'
+
+if command -v eza >/dev/null 2>&1; then
+  alias ls='eza --icons --group-directories-first'
+  alias ll='eza -lh --icons --group-directories-first --git'
+  alias la='eza -lah --icons --group-directories-first --git'
+  alias tree='eza --tree --icons'
+else
+  alias ll='ls -lhG'
+  alias la='ls -lahG'
+fi
+
+if command -v bat >/dev/null 2>&1; then
+  export BAT_THEME='Nord'
+  export MANPAGER="sh -c 'col -bx | bat -l man -p'"
+fi
+
+if command -v fzf >/dev/null 2>&1; then
+  export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
+  export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+  export FZF_ALT_C_COMMAND='fd --type d --hidden --follow --exclude .git'
+  export FZF_DEFAULT_OPTS='--height 75% --border --info=inline --bind "ctrl-/:toggle-preview"'
+  export FZF_CTRL_T_OPTS="--preview 'bat --color=always --style=numbers --line-range=:300 {}'"
+  export FZF_ALT_C_OPTS="--preview 'eza --tree --color=always --icons --level=2 {} | head -100'"
+  [[ -o zle && -t 0 && -t 1 ]] && source <(fzf --zsh)
+fi
+
+command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"
+command -v direnv >/dev/null 2>&1 && eval "$(direnv hook zsh)"
+if command -v starship >/dev/null 2>&1 && [[ ${TERM:-dumb} != dumb ]]; then
+  eval "$(starship init zsh)"
+fi
+
+# Machine-specific or private overrides belong here and are never managed.
+[[ -r "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"

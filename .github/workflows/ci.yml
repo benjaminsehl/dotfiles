@@ -1,0 +1,29 @@
+name: dotfiles
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/terminal-wizard/package-lock.json
+      - name: Install validators
+        run: brew install shellcheck gitleaks jq
+      - name: Test dotfiles
+        run: ./scripts/test
+      - name: Install Terminal Wizard
+        working-directory: apps/terminal-wizard
+        run: npm ci
+      - name: Test Terminal Wizard
+        working-directory: apps/terminal-wizard
+        run: npm run check

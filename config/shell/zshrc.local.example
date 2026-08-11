@@ -1,0 +1,2 @@
+# Private, machine-specific customizations go here. This file is not tracked.
+# export WORKSPACE="$HOME/Developer"

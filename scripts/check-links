@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+sources=(
+  config/shell/profile
+  config/shell/zprofile
+  config/shell/zshrc
+  config/shell/zlogin
+  config/shell/bash_profile
+  config/shell/bashrc
+  config/ghostty/config.ghostty
+  config/herdr/config.toml
+  config/mise/config.toml
+  config/starship/starship.toml
+  config/git/gitconfig
+  apply
+  bin/dev-update
+  bin/dev-doctor
+  bin/configure-codex
+)
+targets=(
+  .profile
+  .zprofile
+  .zshrc
+  .zlogin
+  .bash_profile
+  .bashrc
+  .config/ghostty/config.ghostty
+  .config/herdr/config.toml
+  .config/mise/config.toml
+  .config/starship.toml
+  .gitconfig
+  .local/bin/apply
+  .local/bin/dev-update
+  .local/bin/dev-doctor
+  .local/bin/configure-codex
+)
+
+status=0
+for index in "${!sources[@]}"; do
+  expected="$REPO_ROOT/${sources[$index]}"
+  target="$HOME/${targets[$index]}"
+  if [[ ! -L $target ]] || [[ $(readlink "$target") != "$expected" ]]; then
+    printf 'link drift: %s should point to %s\n' "$target" "$expected" >&2
+    status=1
+  fi
+done
+exit "$status"

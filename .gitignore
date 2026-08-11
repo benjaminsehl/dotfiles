@@ -1,0 +1,19 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+*.local
+*.secret
+secrets/
+.idea/
+.vscode/
+
+# Identity and credentials are always machine-local.
+.gitconfig.local
+config/omp/
+config/gh/
+config/stripe/
+config/docker/
+config/aws/
+config/ssh/
+config/gpg/

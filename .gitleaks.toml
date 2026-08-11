@@ -1,0 +1,15 @@
+title = "benjaminsehl/dotfiles secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Generated and dependency directories are excluded from source scans"
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)dist/''',
+  '''(^|/)\.next/''',
+  '''(^|/)\.vinext/''',
+  '''(^|/)\.wrangler/''',
+  '''(^|/)tsconfig\.tsbuildinfo$''',
+]

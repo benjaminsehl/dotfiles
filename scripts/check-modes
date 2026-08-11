@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+status=0
+for path in "$HOME/.zshrc.local" "$HOME/.gitconfig.local" "$HOME/.netrc" "$HOME/.docker/config.json" "$HOME/.omp/agent/agent.db" "$HOME/.codex/config.toml"; do
+  [[ -e $path ]] || continue
+  mode=$(stat -f '%Lp' "$path")
+  if [[ $mode != 600 ]]; then
+    printf 'unsafe mode %s on %s; expected 600\n' "$mode" "$path" >&2
+    status=1
+  fi
+done
+
+
+for directory in "$HOME/.codex" "$HOME/.omp" "$HOME/.omp/agent"; do
+  [[ -d $directory ]] || continue
+  mode=$(stat -f '%Lp' "$directory")
+  if [[ $mode != 700 ]]; then
+    printf 'unsafe mode %s on %s; expected 700\n' "$mode" "$directory" >&2
+    status=1
+  fi
+done
+exit "$status"

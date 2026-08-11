@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+manifest="$REPO_ROOT/manifest/setup.json"
+
+command -v jq >/dev/null 2>&1 || {
+  printf 'jq is required to validate %s\n' "$manifest" >&2
+  exit 1
+}
+
+jq -e '
+  [.tools[].id] as $tool_ids |
+  [.aliases[].name] as $alias_names |
+  [.workflows[].id] as $workflow_ids |
+  [.learningPaths[].id] as $lesson_ids |
+  [.learningPaths[].tools[]] as $lesson_tools |
+  .schemaVersion == 1 and
+  ($tool_ids | length) > 0 and
+  ($tool_ids | length) == ($tool_ids | unique | length) and
+  ($alias_names | length) == ($alias_names | unique | length) and
+  ($workflow_ids | length) == ($workflow_ids | unique | length) and
+  ($lesson_ids | length) == ($lesson_ids | unique | length) and
+  ($lesson_tools - $tool_ids | length) == 0 and
+  all(.tools[]; (.id | length) > 0 and (.command | length) > 0 and (.purpose | length) > 0) and
+  all(.workflows[]; (.command | length) > 0 and (.mutates | type) == "boolean") and
+  all(.learningPaths[]; (.title | length) > 0 and (.practice | length) > 0)
+' "$manifest" >/dev/null
+
+printf 'teaching manifest: ok\n'

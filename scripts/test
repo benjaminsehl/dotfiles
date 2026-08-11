@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$REPO_ROOT"
+
+bash -n apply bootstrap bin/configure-codex bin/dev-update bin/dev-doctor scripts/check-links scripts/check-manifest scripts/check-modes
+zsh -n config/shell/profile config/shell/zprofile config/shell/zshrc config/shell/zlogin
+
+if command -v shellcheck >/dev/null 2>&1; then
+  shellcheck apply bootstrap bin/configure-codex bin/dev-update bin/dev-doctor scripts/check-links scripts/check-manifest scripts/check-modes
+fi
+
+scripts/check-manifest
+
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks dir --no-banner --redact .
+fi
+
+if rg -n --hidden --glob '!.git/**' --glob '!scripts/test' \
+  'JEKYLL_GITHUB_TOKEN|BEGIN [A-Z ]*PRIVATE KEY|gh[pousr]_[A-Za-z0-9_]{20,}|password[[:space:]]*=' .; then
+  printf 'Potential secret found in tracked source.\n' >&2
+  exit 1
+fi
+
+temp_home=$(mktemp -d "${TMPDIR:-/tmp}/dotfiles-test.XXXXXX")
+cleanup() {
+  case "$temp_home" in
+    "${TMPDIR:-/tmp}"/dotfiles-test.*) rm -rf -- "$temp_home" ;;
+  esac
+}
+trap cleanup EXIT
+
+printf 'legacy config\n' > "$temp_home/.zshrc"
+mkdir -p "$temp_home/.codex"
+cat > "$temp_home/.codex/config.toml" <<'TOML'
+model = "keep-me"
+
+[plugins."keep-me"]
+enabled = true
+TOML
+chmod 600 "$temp_home/.codex/config.toml"
+./apply --target-home "$temp_home" --skip-packages --skip-postinstall --yes
+first_links=$(find "$temp_home" -type l -exec sh -c 'printf "%s -> %s\n" "$1" "$(readlink "$1")"' _ {} \; | sort)
+first_codex_checksum=$(shasum -a 256 "$temp_home/.codex/config.toml")
+bin/configure-codex --target-home "$temp_home" --check
+[[ $(awk '/^\[/ { exit } /^approval_policy[[:space:]]*=/ { count += 1 } END { print count + 0 }' "$temp_home/.codex/config.toml") == 1 ]]
+[[ $(awk '/^\[/ { exit } /^approvals_reviewer[[:space:]]*=/ { count += 1 } END { print count + 0 }' "$temp_home/.codex/config.toml") == 1 ]]
+grep -Fq 'model = "keep-me"' "$temp_home/.codex/config.toml"
+grep -Fq '[plugins."keep-me"]' "$temp_home/.codex/config.toml"
+[[ $(stat -f '%Lp' "$temp_home/.codex") == 700 ]]
+[[ $(stat -f '%Lp' "$temp_home/.codex/config.toml") == 600 ]]
+[[ $(stat -f '%Lp' "$temp_home/.zshrc.local") == 600 ]]
+[[ $(stat -f '%Lp' "$temp_home/.gitconfig.local") == 600 ]]
+./apply --target-home "$temp_home" --skip-packages --skip-postinstall --yes
+second_links=$(find "$temp_home" -type l -exec sh -c 'printf "%s -> %s\n" "$1" "$(readlink "$1")"' _ {} \; | sort)
+second_codex_checksum=$(shasum -a 256 "$temp_home/.codex/config.toml")
+
+[[ $first_links == "$second_links" ]]
+[[ $first_codex_checksum == "$second_codex_checksum" ]]
+[[ $(find "$temp_home/.config/dotfiles-backups" -name .zshrc -type f | wc -l | tr -d ' ') == 1 ]]
+[[ $(find "$temp_home/.config/dotfiles-backups" -path '*/.codex/config.toml' -type f | wc -l | tr -d ' ') == 1 ]]
+
+corrupt_home="$temp_home/corrupt-marker"
+mkdir -p "$corrupt_home/.codex"
+cat > "$corrupt_home/.codex/config.toml" <<'TOML'
+model = "preserve-me"
+# BEGIN benjaminsehl/dotfiles Codex approvals
+approval_policy = "on-request"
+
+[plugins."must-survive"]
+enabled = true
+TOML
+before_corrupt=$(shasum -a 256 "$corrupt_home/.codex/config.toml")
+if bin/configure-codex --target-home "$corrupt_home" >/dev/null 2>&1; then
+  printf 'configure-codex accepted an unmatched managed marker\n' >&2
+  exit 1
+fi
+after_corrupt=$(shasum -a 256 "$corrupt_home/.codex/config.toml")
+[[ $before_corrupt == "$after_corrupt" ]]
+
+postinstall_home="$temp_home/postinstall-home"
+mkdir -p "$postinstall_home/.local/bin"
+for fake_command in mise git omp herdr; do
+  cat > "$postinstall_home/.local/bin/$fake_command" <<'SH'
+#!/bin/sh
+printf '%s %s\n' "${0##*/}" "$*" >> "$HOME/postinstall.log"
+SH
+  chmod 755 "$postinstall_home/.local/bin/$fake_command"
+done
+HOME="$postinstall_home" ./bootstrap \
+  --target-home "$postinstall_home" \
+  --skip-packages \
+  --yes
+grep -Fxq 'mise install' "$postinstall_home/postinstall.log"
+grep -Fxq 'mise reshim' "$postinstall_home/postinstall.log"
+grep -Fxq 'git lfs install --skip-repo' "$postinstall_home/postinstall.log"
+grep -Fxq 'omp config set tools.approvalMode write' "$postinstall_home/postinstall.log"
+grep -Fxq 'omp config set secrets.enabled true' "$postinstall_home/postinstall.log"
+grep -Fxq 'herdr integration install omp' "$postinstall_home/postinstall.log"
+grep -Fxq 'herdr integration install codex' "$postinstall_home/postinstall.log"
+[[ $(stat -f '%Lp' "$postinstall_home/.omp") == 700 ]]
+[[ $(stat -f '%Lp' "$postinstall_home/.omp/agent") == 700 ]]
+
+printf 'dotfiles tests: ok\n'

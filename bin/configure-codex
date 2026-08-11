@@ -1,0 +1,198 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+target_home=$HOME
+dry_run=0
+check_only=0
+
+usage() {
+  cat <<'USAGE'
+Usage: configure-codex [options]
+
+Manage only the two top-level Codex approval preferences owned by dotfiles.
+Every other key and table in ~/.codex/config.toml is preserved.
+
+  --check              Verify the managed values without changing anything
+  --dry-run            Show whether the file would change
+  --target-home PATH   Operate below PATH (used by bootstrap tests)
+  --help               Show this help
+USAGE
+}
+
+while (($#)); do
+  case "$1" in
+    --check) check_only=1 ;;
+    --dry-run) dry_run=1 ;;
+    --target-home)
+      shift
+      [[ $# -gt 0 ]] || { printf 'Missing path for --target-home\n' >&2; exit 2; }
+      target_home=$1
+      ;;
+    --help) usage; exit 0 ;;
+    *) printf 'Unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+  esac
+  shift
+done
+
+[[ $target_home = /* ]] || { printf 'Target home must be an absolute path.\n' >&2; exit 2; }
+if ((check_only && dry_run)); then
+  printf '%s\n' '--check and --dry-run cannot be combined.' >&2
+  exit 2
+fi
+
+config_dir="$target_home/.codex"
+config_file="$config_dir/config.toml"
+managed_start='# BEGIN benjaminsehl/dotfiles Codex approvals'
+managed_end='# END benjaminsehl/dotfiles Codex approvals'
+
+validate_managed_markers() {
+  local file=$1
+  awk -v start="$managed_start" -v finish="$managed_end" '
+    $0 == start {
+      starts += 1
+      if (start_line == 0) start_line = NR
+    }
+    $0 == finish {
+      finishes += 1
+      if (finish_line == 0) finish_line = NR
+    }
+    /^\[/ && table_line == 0 { table_line = NR }
+    END {
+      if (starts == 0 && finishes == 0) exit 0
+      if (starts == 1 && finishes == 1 && start_line < finish_line &&
+          (table_line == 0 || finish_line < table_line)) exit 0
+      exit 1
+    }
+  ' "$file" || {
+    printf 'refusing to rewrite %s: managed Codex markers are unmatched, duplicated, out of order, or below a TOML table\n' "$file" >&2
+    return 1
+  }
+}
+
+top_value() {
+  local key=$1
+  local file=$2
+  awk -v key="$key" '
+    /^\[/ { exit }
+    $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+      value = $0
+      sub(/^[^=]*=[[:space:]]*/, "", value)
+      print value
+      found += 1
+    }
+    END { if (found != 1) exit 1 }
+  ' "$file"
+}
+
+check_values() {
+  [[ -f $config_file ]] || { printf 'missing Codex config: %s\n' "$config_file" >&2; return 1; }
+  validate_managed_markers "$config_file" || return 1
+  local policy reviewer
+  policy=$(top_value approval_policy "$config_file") || {
+    printf 'approval_policy must appear once at the top level\n' >&2
+    return 1
+  }
+  reviewer=$(top_value approvals_reviewer "$config_file") || {
+    printf 'approvals_reviewer must appear once at the top level\n' >&2
+    return 1
+  }
+  [[ $policy == '"on-request"' ]] || {
+    printf 'approval_policy is %s; expected "on-request"\n' "$policy" >&2
+    return 1
+  }
+  [[ $reviewer == '"auto_review"' ]] || {
+    printf 'approvals_reviewer is %s; expected "auto_review"\n' "$reviewer" >&2
+    return 1
+  }
+  printf 'approval_policy=on-request; approvals_reviewer=auto_review\n'
+}
+
+if ((check_only)); then
+  check_values
+  exit
+fi
+
+if [[ -f $config_file ]]; then
+  validate_managed_markers "$config_file"
+fi
+
+if ((dry_run)); then
+  source_file=$config_file
+  [[ -f $source_file ]] || source_file=/dev/null
+else
+  mkdir -p "$config_dir"
+  chmod 700 "$config_dir"
+  [[ -f $config_file ]] || install -m 600 /dev/null "$config_file"
+  source_file=$config_file
+fi
+
+temp_file=$(mktemp "${TMPDIR:-/tmp}/configure-codex.XXXXXX")
+cleanup() {
+  case "$temp_file" in
+    "${TMPDIR:-/tmp}"/configure-codex.*) rm -f -- "$temp_file" ;;
+  esac
+}
+trap cleanup EXIT
+
+awk -v start="$managed_start" -v finish="$managed_end" '
+  function emit_managed() {
+    if (inserted) return
+    print start
+    print "approval_policy = \"on-request\""
+    print "approvals_reviewer = \"auto_review\""
+    print finish
+    print ""
+    inserted = 1
+  }
+  BEGIN { top = 1; skipping = 0; after_managed = 0; inserted = 0 }
+  {
+    if (top && $0 == start) { skipping = 1; next }
+    if (top && skipping) {
+      if ($0 == finish) {
+        skipping = 0
+        after_managed = 1
+      }
+      next
+    }
+    if (top && after_managed) {
+      if ($0 ~ /^[[:space:]]*$/) next
+      after_managed = 0
+    }
+    if (top && $0 == "# Keep safety prompts available, but let Codex review eligible approvals for me.") next
+    if (top && $0 ~ /^[[:space:]]*(approval_policy|approvals_reviewer)[[:space:]]*=/) next
+    if (top && $0 ~ /^\[/) {
+      emit_managed()
+      top = 0
+    }
+    print
+  }
+  END { if (top) emit_managed() }
+' "$source_file" > "$temp_file"
+chmod 600 "$temp_file"
+
+if [[ -f $config_file ]] && cmp -s "$temp_file" "$config_file"; then
+  ((dry_run)) || chmod 600 "$config_file"
+  printf 'Codex approval defaults already configured.\n'
+  exit
+fi
+
+if ((dry_run)); then
+  printf 'Would configure Codex auto-review in %s\n' "$config_file"
+  exit
+fi
+
+if [[ -s $config_file ]]; then
+  timestamp=$(date +%Y%m%d-%H%M%S)
+  backup_root="$target_home/.config/dotfiles-backups"
+  mkdir -p "$backup_root"
+  backup_run=$(mktemp -d "$backup_root/$timestamp.XXXXXX")
+  backup_dir="$backup_run/.codex"
+  mkdir -p "$backup_dir"
+  install -m 600 "$config_file" "$backup_dir/config.toml"
+  printf 'Previous Codex config preserved in %s\n' "$backup_dir/config.toml"
+fi
+
+mv "$temp_file" "$config_file"
+temp_file=''
+chmod 600 "$config_file"
+check_values

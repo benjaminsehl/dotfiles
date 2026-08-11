@@ -1,0 +1,310 @@
+"use client";
+
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
+import { GhosttyCore } from "@wterm/ghostty";
+import { BashShell } from "@wterm/just-bash";
+import { Terminal, type TerminalHandle } from "@wterm/react";
+import { sanitizeTerminalText } from "@/app/lib/file-system";
+import { basePracticeFiles, promptFor, registerPracticeCommands } from "@/app/lib/practice";
+
+export type TerminalMode = "practice" | "live";
+
+export type WizardTerminalHandle = {
+  insertCommand(command: string): void;
+  focus(): void;
+};
+
+type WizardTerminalProps = {
+  mode: TerminalMode;
+  files?: Record<string, string>;
+  onCommand(command: string): void;
+};
+
+type LiveMessage =
+  | { type: "ready" }
+  | { type: "output"; data: string }
+  | { type: "exit"; code: number; signal?: number }
+  | { type: "error"; message: string }
+  | { type: "pong" };
+
+function safeWorkspaceFiles(files: Record<string, string>): Record<string, string> {
+  const safe: Record<string, string> = {};
+  for (const [inputPath, inputContent] of Object.entries(files)) {
+    const relative = inputPath.startsWith("/workspace/")
+      ? inputPath.slice("/workspace/".length)
+      : inputPath.startsWith("/")
+        ? ""
+        : inputPath;
+    const segments = relative.split("/").filter(Boolean);
+    if (!segments.length || segments.some((segment) => segment === "." || segment === "..")) continue;
+    const path = `/workspace/${segments.join("/")}`;
+    safe[path] = sanitizeTerminalText(inputContent);
+  }
+  return safe;
+}
+
+function dimensions(instance: TerminalHandle | null): { cols: number; rows: number } {
+  const terminal = instance?.instance;
+  return {
+    cols: terminal?.cols ?? 100,
+    rows: terminal?.rows ?? 28,
+  };
+}
+
+export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalProps>(
+  function WizardTerminal({ mode, files = {}, onCommand }, forwardedRef) {
+    const terminalRef = useRef<TerminalHandle>(null);
+    const shellRef = useRef<BashShell | null>(null);
+    const socketRef = useRef<WebSocket | null>(null);
+    const liveAbortRef = useRef<AbortController | null>(null);
+    const liveGenerationRef = useRef(0);
+    const commandBufferRef = useRef("");
+    const [core, setCore] = useState<GhosttyCore | null>(null);
+    const [status, setStatus] = useState<"loading" | "connecting" | "ready" | "error">("loading");
+    const [statusMessage, setStatusMessage] = useState("Loading libghostty…");
+
+    useEffect(() => {
+      let active = true;
+      GhosttyCore.load({ wasmPath: "/ghostty-vt.wasm", scrollbackLimit: 5_000 })
+        .then((loadedCore) => {
+          if (!active) return;
+          setCore(loadedCore);
+          setStatus("connecting");
+          setStatusMessage(mode === "practice" ? "Preparing the practice shell…" : "Requesting a one-time Live Mac ticket…");
+        })
+        .catch((error: unknown) => {
+          if (!active) return;
+          setStatus("error");
+          setStatusMessage(error instanceof Error ? error.message : "libghostty could not be loaded");
+        });
+      return () => {
+        active = false;
+      };
+    }, [mode]);
+
+    useEffect(
+      () => () => {
+        liveGenerationRef.current += 1;
+        liveAbortRef.current?.abort();
+        liveAbortRef.current = null;
+        const socket = socketRef.current;
+        if (socketRef.current === socket) socketRef.current = null;
+        socket?.close(1000, "terminal changed");
+        shellRef.current = null;
+      },
+      [],
+    );
+
+    const trackInput = useCallback(
+      (data: string) => {
+        if (data.startsWith("\u001b")) return;
+        for (const character of data) {
+          if (character === "\r" || character === "\n") {
+            const command = commandBufferRef.current.trim();
+            commandBufferRef.current = "";
+            if (command) onCommand(command);
+          } else if (character === "\u007f" || character === "\b") {
+            commandBufferRef.current = commandBufferRef.current.slice(0, -1);
+          } else if (character === "\u0015" || character === "\u0003") {
+            commandBufferRef.current = "";
+          } else if (character >= " ") {
+            commandBufferRef.current += character;
+          }
+        }
+      },
+      [onCommand],
+    );
+
+    const sendInput = useCallback(
+      (data: string) => {
+        trackInput(data);
+        if (mode === "practice") {
+          void shellRef.current?.handleInput(data);
+          return;
+        }
+        const socket = socketRef.current;
+        if (socket?.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: "input", data }));
+        }
+      },
+      [mode, trackInput],
+    );
+
+    useImperativeHandle(
+      forwardedRef,
+      () => ({
+        insertCommand(command: string) {
+          sendInput(command);
+          terminalRef.current?.focus();
+        },
+        focus() {
+          terminalRef.current?.focus();
+        },
+      }),
+      [sendInput],
+    );
+
+    const connectLive = useCallback(async () => {
+      const generation = liveGenerationRef.current + 1;
+      liveGenerationRef.current = generation;
+      liveAbortRef.current?.abort();
+      const controller = new AbortController();
+      liveAbortRef.current = controller;
+      setStatus("connecting");
+      setStatusMessage("Requesting a one-time Live Mac ticket…");
+      try {
+        const response = await fetch("http://127.0.0.1:4318/session", {
+          method: "GET",
+          mode: "cors",
+          credentials: "omit",
+          cache: "no-store",
+          referrerPolicy: "no-referrer",
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted || liveGenerationRef.current !== generation) return;
+        if (!response.ok) throw new Error("The local Live Mac service is unavailable or already in use.");
+        const body = (await response.json()) as { protocol?: unknown };
+        if (typeof body.protocol !== "string" || !body.protocol.startsWith("terminal-wizard.")) {
+          throw new Error("The Live Mac service returned an invalid session ticket.");
+        }
+
+        const socket = new WebSocket("ws://127.0.0.1:4318/terminal", body.protocol);
+        if (controller.signal.aborted || liveGenerationRef.current !== generation) {
+          socket.close(1000, "terminal changed");
+          return;
+        }
+        socketRef.current = socket;
+        socket.addEventListener("open", () => {
+          if (socketRef.current !== socket || liveGenerationRef.current !== generation) {
+            socket.close(1000, "stale session");
+            return;
+          }
+          const size = dimensions(terminalRef.current);
+          socket.send(JSON.stringify({ type: "start", ...size }));
+        });
+        socket.addEventListener("message", (event) => {
+          if (socketRef.current !== socket || liveGenerationRef.current !== generation) return;
+          try {
+            const message = JSON.parse(String(event.data)) as LiveMessage;
+            if (message.type === "output") terminalRef.current?.write(message.data);
+            if (message.type === "ready") {
+              setStatus("ready");
+              setStatusMessage("Live Mac connected");
+              terminalRef.current?.focus();
+            }
+            if (message.type === "error") {
+              setStatus("error");
+              setStatusMessage(message.message);
+              terminalRef.current?.write(`\r\n\u001b[31m${message.message}\u001b[0m\r\n`);
+            }
+            if (message.type === "exit") {
+              setStatus("error");
+              setStatusMessage(`Shell exited with code ${message.code}`);
+            }
+          } catch {
+            setStatus("error");
+            setStatusMessage("Live Mac sent an unreadable response.");
+          }
+        });
+        socket.addEventListener("error", () => {
+          if (socketRef.current !== socket || liveGenerationRef.current !== generation) return;
+          setStatus("error");
+          setStatusMessage("Could not connect to the loopback-only Live Mac service.");
+        });
+        socket.addEventListener("close", (event) => {
+          if (socketRef.current !== socket || liveGenerationRef.current !== generation) return;
+          socketRef.current = null;
+          if (event.code !== 1000) {
+            setStatus("error");
+            setStatusMessage("Live Mac disconnected. Return to Practice or reconnect deliberately.");
+          }
+        });
+      } catch (error) {
+        if (controller.signal.aborted || liveGenerationRef.current !== generation) return;
+        setStatus("error");
+        setStatusMessage(error instanceof Error ? error.message : "Could not start Live Mac");
+      }
+    }, []);
+
+    const handleReady = useCallback(async () => {
+      if (mode === "live") {
+        await connectLive();
+        return;
+      }
+      if (shellRef.current) return;
+      const connectedFiles = safeWorkspaceFiles(files);
+      const hasWorkspace = Object.keys(connectedFiles).some((path) => path.startsWith("/workspace/"));
+      const shell = new BashShell({
+        files: { ...basePracticeFiles, ...connectedFiles },
+        cwd: hasWorkspace ? "/workspace" : "/home/benjamin/Developer/terminal-wizard",
+        env: {
+          HOME: "/home/benjamin",
+          SHELL: "/bin/zsh",
+          PATH: "/usr/local/bin:/usr/bin:/bin",
+          TERM: "xterm-ghostty",
+          TERM_PROGRAM: "ghostty",
+        },
+        greeting: [
+          "\u001b[38;2;202;211;245mTerminal Wizard · safe practice\u001b[0m",
+          "\u001b[38;2;166;173;200mIn-memory shell · network off · changes vanish on reload\u001b[0m",
+          hasWorkspace ? "\u001b[38;2;166;227;161mRead-only folder snapshot mounted at /workspace\u001b[0m" : "Type help, or insert a command from the lesson below.",
+        ],
+        prompt: promptFor,
+      });
+      shellRef.current = shell;
+      await shell.attach((data) => terminalRef.current?.write(data));
+      registerPracticeCommands(shell);
+      setStatus("ready");
+      setStatusMessage("Safe practice ready");
+      terminalRef.current?.focus();
+    }, [connectLive, files, mode]);
+
+    const handleResize = useCallback((cols: number, rows: number) => {
+      const socket = socketRef.current;
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: "resize", cols, rows }));
+      }
+    }, []);
+
+    return (
+      <div className="terminal-stage" data-mode={mode}>
+        {!core ? (
+          <div className="terminal-loading" role="status">
+            <span className="terminal-loading-mark">❯</span>
+            <span>{statusMessage}</span>
+          </div>
+        ) : (
+          <Terminal
+            ref={terminalRef}
+            core={core}
+            className="wizard-wterm"
+            autoResize
+            cursorBlink
+            debug={false}
+            onReady={() => void handleReady()}
+            onData={sendInput}
+            onResize={handleResize}
+            onError={(error) => {
+              setStatus("error");
+              setStatusMessage(error instanceof Error ? error.message : "Terminal renderer error");
+            }}
+            aria-label={mode === "practice" ? "Safe practice terminal" : "Live Mac terminal"}
+          />
+        )}
+        {status !== "ready" && core ? (
+          <div className={`terminal-status terminal-status-${status}`} role="status">
+            <span className="status-pulse" aria-hidden="true" />
+            {statusMessage}
+          </div>
+        ) : null}
+      </div>
+    );
+  },
+);

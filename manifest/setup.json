@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 1,
+  "profile": {
+    "name": "Benjamin's developer workstation",
+    "platform": "macOS",
+    "architectures": ["x86_64", "arm64"],
+    "shell": "zsh",
+    "stack": ["Ghostty", "zsh", "Starship", "Herdr", "OMP / Codex"]
+  },
+  "releasePolicy": {
+    "packageStrategy": "current stable releases",
+    "runtimePinning": "exact",
+    "minimumRuntimeReleaseAge": "7d",
+    "automaticShellInstalls": false
+  },
+  "tools": [
+    {"id":"ghostty","name":"Ghostty","command":"ghostty","version":"1.3.1","category":"terminal","purpose":"Fast native terminal window with the Catppuccin appearance"},
+    {"id":"zsh","name":"Zsh","command":"zsh","version":"system","category":"shell","purpose":"The command interpreter and interactive shell"},
+    {"id":"starship","name":"Starship","command":"starship","version":"1.26.0","category":"shell","purpose":"Fast, minimal prompt with Git context"},
+    {"id":"herdr","name":"Herdr","command":"herdr","version":"0.8.0","category":"workspace","purpose":"Persistent panes and agent sessions"},
+    {"id":"omp","name":"Oh My Pi","command":"omp","version":"17.2.14","category":"agent","purpose":"Coding agent that auto-approves reads and workspace writes while preserving higher-impact approval boundaries"},
+    {"id":"codex","name":"Codex CLI","command":"codex","version":"0.147.0","category":"agent","purpose":"OpenAI coding agent with on-request approvals delegated to the automatic reviewer"},
+    {"id":"git","name":"Git","command":"git","version":"2.55.0","category":"source-control","purpose":"Version control"},
+    {"id":"gh","name":"GitHub CLI","command":"gh","version":"2.97.0","category":"source-control","purpose":"GitHub repositories, issues, pull requests, and authentication"},
+    {"id":"mise","name":"mise","command":"mise","version":"2026.8.4","category":"runtime","purpose":"Pinned language runtimes with a seven-day release gate"},
+    {"id":"node","name":"Node.js","command":"node","version":"24.19.0","category":"runtime","purpose":"JavaScript runtime"},
+    {"id":"npm","name":"npm","command":"npm","version":"11.17.0","category":"runtime","purpose":"Node package manager"},
+    {"id":"pnpm","name":"pnpm","command":"pnpm","version":"11.20.0","category":"runtime","purpose":"Fast workspace-aware JavaScript package manager"},
+    {"id":"bun","name":"Bun","command":"bun","version":"1.3.14","category":"runtime","purpose":"JavaScript runtime and toolkit"},
+    {"id":"go","name":"Go","command":"go","version":"1.26.5","category":"runtime","purpose":"Go compiler and tools"},
+    {"id":"python","name":"Python","command":"python3","version":"3.14.6","category":"runtime","purpose":"Python runtime managed explicitly by mise"},
+    {"id":"uv","name":"uv","command":"uv","version":"0.12.3","category":"runtime","purpose":"Fast Python projects and dependencies"},
+    {"id":"nvim","name":"Neovim","command":"nvim","version":"0.12.4","category":"editor","purpose":"Terminal editor"},
+    {"id":"rg","name":"ripgrep","command":"rg","version":"15.2.0","category":"search","purpose":"Search file contents recursively"},
+    {"id":"fd","name":"fd","command":"fd","version":"10.4.2","category":"search","purpose":"Find files and directories"},
+    {"id":"fzf","name":"fzf","command":"fzf","version":"0.74.2","category":"search","purpose":"Interactive fuzzy selection"},
+    {"id":"bat","name":"bat","command":"bat","version":"0.26.1","category":"inspection","purpose":"Readable syntax-highlighted file output"},
+    {"id":"eza","name":"eza","command":"eza","version":"0.23.5","category":"inspection","purpose":"Modern directory listings and trees"},
+    {"id":"zoxide","name":"zoxide","command":"zoxide","version":"0.10.0","category":"navigation","purpose":"Jump to frequently used directories"},
+    {"id":"direnv","name":"direnv","command":"direnv","version":"2.37.1","category":"environment","purpose":"Explicit per-project environment loading"},
+    {"id":"jq","name":"jq","command":"jq","version":"1.8.2","category":"data","purpose":"Query and transform JSON"},
+    {"id":"lazygit","name":"lazygit","command":"lazygit","version":"0.64.0","category":"source-control","purpose":"Interactive Git interface"},
+    {"id":"shellcheck","name":"ShellCheck","command":"shellcheck","version":"0.11.0","category":"quality","purpose":"Find shell-script mistakes"},
+    {"id":"gitleaks","name":"Gitleaks","command":"gitleaks","version":"8.30.1","category":"security","purpose":"Prevent secrets from entering Git history"},
+    {"id":"apply","name":"Apply","command":"apply","version":"dotfiles","category":"maintenance","purpose":"Reconcile the declared workstation state through one safe entry point"},
+    {"id":"dev-doctor","name":"Developer doctor","command":"dev-doctor","version":"dotfiles","category":"maintenance","purpose":"Assert workstation health and security settings"},
+    {"id":"dev-update","name":"Developer updater","command":"dev-update","version":"dotfiles","category":"maintenance","purpose":"Update only the declared toolchain and runtime pins"}
+  ],
+  "shortcuts": [
+    {"scope":"zsh","keys":"Up / Down","action":"Search command history by the text already typed"},
+    {"scope":"fzf","keys":"Control-T","action":"Find a file and insert its path"},
+    {"scope":"fzf","keys":"Option-C","action":"Find a directory and jump into it"},
+    {"scope":"fzf","keys":"Control-R","action":"Search shell command history"},
+    {"scope":"fzf","keys":"Control-/","action":"Toggle the preview panel"},
+    {"scope":"herdr","keys":"Control-B, then ?","action":"Open Herdr's keybinding guide"},
+    {"scope":"herdr","keys":"Control-B, then Q","action":"Detach while keeping sessions alive"}
+  ],
+  "aliases": [
+    {"scope":"shell","name":"e","expandsTo":"nvim","purpose":"Open the terminal editor"},
+    {"scope":"shell","name":"n","expandsTo":"nvim","purpose":"Open the terminal editor"},
+    {"scope":"shell","name":"lg","expandsTo":"lazygit","purpose":"Open the interactive Git interface"},
+    {"scope":"shell","name":"sg","expandsTo":"ast-grep","purpose":"Run structural code search"},
+    {"scope":"shell","name":"gs","expandsTo":"git status --short --branch","purpose":"Show concise repository status"},
+    {"scope":"shell","name":"gd","expandsTo":"git diff","purpose":"Inspect unstaged changes"},
+    {"scope":"shell","name":"gl","expandsTo":"git log --oneline --decorate --graph -20","purpose":"Inspect recent history as a graph"}
+  ],
+  "workflows": [
+    {"id":"reconcile","title":"Reconcile the workstation","command":"apply","mutates":true,"network":"package metadata and missing packages","purpose":"Restore declared packages, links, runtimes, and safety settings without upgrading everything"},
+    {"id":"preview","title":"Preview reconciliation","command":"apply --dry-run","mutates":false,"network":"none","purpose":"Show bootstrap actions before changing the machine"},
+    {"id":"update","title":"Update the declared toolchain","command":"apply --update","mutates":true,"network":"declared packages and runtimes","purpose":"Upgrade only the managed package set and refresh exact runtime pins"},
+    {"id":"check","title":"Verify the workstation","command":"apply --check","mutates":false,"network":"version and authentication checks may contact their services","purpose":"Run repository tests and the live developer doctor"}
+  ],
+  "learningPaths": [
+    {
+      "id":"terminal-orientation",
+      "title":"Know where you are",
+      "level":"beginner",
+      "minutes":8,
+      "tools":["ghostty","zsh","starship","eza","bat"],
+      "outcomes":["Read the prompt","Identify the current directory","Inspect files without changing them"],
+      "practice":[
+        {"prompt":"Print the current directory","command":"pwd"},
+        {"prompt":"List all files with Git context","command":"la"},
+        {"prompt":"Preview a text file with syntax highlighting","command":"bat README.md"}
+      ]
+    },
+    {
+      "id":"find-and-move",
+      "title":"Find anything and move quickly",
+      "level":"beginner",
+      "minutes":12,
+      "tools":["fd","fzf","zoxide","rg"],
+      "outcomes":["Find files by name","Search file contents","Jump to remembered directories"],
+      "practice":[
+        {"prompt":"Find Markdown files below the current directory","command":"fd -e md"},
+        {"prompt":"Search recursively for a word","command":"rg 'TODO'"},
+        {"prompt":"Interactively choose a file","command":"Control-T"}
+      ]
+    },
+    {
+      "id":"git-confidence",
+      "title":"Work confidently with Git",
+      "level":"beginner",
+      "minutes":15,
+      "tools":["git","gh","lazygit"],
+      "outcomes":["Read repository state","Review changes before committing","Use GitHub from the terminal"],
+      "practice":[
+        {"prompt":"Inspect concise status","command":"gs"},
+        {"prompt":"Review the current diff","command":"gd"},
+        {"prompt":"Open an interactive Git view","command":"lg"}
+      ]
+    },
+    {
+      "id":"runtime-mastery",
+      "title":"Use project runtimes without drift",
+      "level":"intermediate",
+      "minutes":12,
+      "tools":["mise","node","pnpm","python","uv"],
+      "outcomes":["Explain global versus project pins","Inspect active runtimes","Create isolated project dependencies"],
+      "practice":[
+        {"prompt":"Show active managed runtimes","command":"mise current"},
+        {"prompt":"Inspect runtime health","command":"mise doctor"},
+        {"prompt":"Create a Python project without global packages","command":"uv init"}
+      ]
+    },
+    {
+      "id":"agent-workspace",
+      "title":"Run coding agents safely",
+      "level":"intermediate",
+      "minutes":12,
+      "tools":["herdr","omp","codex"],
+      "outcomes":["Keep sessions alive","Detach and restore panes","Recognize OMP and Codex approval boundaries"],
+      "practice":[
+        {"prompt":"Open the workspace manager","command":"herdr"},
+        {"prompt":"Open Herdr's key guide","command":"Control-B, then ?"},
+        {"prompt":"Start OMP in a pane","command":"omp"},
+        {"prompt":"Verify the Codex CLI","command":"codex --version"}
+      ]
+    },
+    {
+      "id":"maintain-the-machine",
+      "title":"Keep the setup healthy",
+      "level":"intermediate",
+      "minutes":10,
+      "tools":["apply","dev-doctor","dev-update","gitleaks"],
+      "outcomes":["Preview changes","Reconcile drift","Update intentionally","Prevent credential leaks"],
+      "practice":[
+        {"prompt":"Preview reconciliation","command":"apply --dry-run"},
+        {"prompt":"Run all health checks","command":"apply --check"},
+        {"prompt":"Update only declared tools","command":"apply --update"}
+      ]
+    }
+  ],
+  "safety": {
+    "ompApprovalMode": "write",
+    "ompSecretsEnabled": true,
+    "herdrPaneHistory": false,
+    "dotfilesAllowlistOnly": true,
+    "networkAtShellStartup": false,
+    "automaticGitPulls": false,
+    "localOverrides": ["~/.zshrc.local", "~/.gitconfig.local"],
+    "neverTrack": ["credentials", "tokens", "shell history", ".env files", "SSH keys", "OMP databases"]
+  },
+  "sources": {
+    "dotfilesInspiration": "https://github.com/tobi/dotfiles",
+    "dotfilesInspirationRevision": "c1a2d9fc0d6248bd6549c99c387b8c6dcc984c3a",
+    "terminalEmulator": "https://ghostty.org",
+    "workspaceManager": "https://herdr.dev",
+    "codingAgent": "https://github.com/can1357/oh-my-pi"
+  }
+}

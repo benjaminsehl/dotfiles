@@ -1,0 +1,26 @@
+# Typography. Sohne Mono is user-owned; JetBrainsMono Nerd Font Mono is the
+# reproducible fallback installed by Brewfile.
+font-family = Sohne Mono
+font-family = JetBrainsMono Nerd Font Mono
+font-size = 14.5
+adjust-cell-height = 2%
+
+# Stay dark regardless of the macOS appearance setting.
+theme = Catppuccin Mocha
+window-theme = dark
+
+macos-titlebar-style = transparent
+macos-option-as-alt = left
+window-padding-x = 14
+window-padding-y = 12
+window-padding-balance = true
+window-padding-color = background
+window-save-state = always
+background-opacity = 0.96
+background-blur = true
+
+mouse-hide-while-typing = true
+shell-integration = detect
+shell-integration-features = cursor,title,path
+cursor-style = block
+cursor-style-blink = false

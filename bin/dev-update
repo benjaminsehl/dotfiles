@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+resolve_source() {
+  local source_path=${BASH_SOURCE[0]}
+  while [[ -L $source_path ]]; do
+    local source_dir
+    source_dir=$(cd "$(dirname "$source_path")" && pwd)
+    source_path=$(readlink "$source_path")
+    [[ $source_path = /* ]] || source_path="$source_dir/$source_path"
+  done
+  cd "$(dirname "$source_path")/.." && pwd
+}
+
+REPO_ROOT=$(resolve_source)
+
+if [[ -x /opt/homebrew/bin/brew ]]; then
+  brew_prefix=/opt/homebrew
+elif [[ -x /usr/local/bin/brew ]]; then
+  brew_prefix=/usr/local
+else
+  printf 'Homebrew is not installed. Run the dotfiles bootstrap first.\n' >&2
+  exit 1
+fi
+
+export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:/Applications/Ghostty.app/Contents/MacOS:$brew_prefix/sbin:$brew_prefix/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+if [[ ${DOTFILES_BREW_UPDATED:-0} != 1 ]]; then
+  brew update
+fi
+brew bundle install --file "$REPO_ROOT/Brewfile" --no-upgrade
+
+formulae=()
+while IFS= read -r formula; do
+  [[ -n $formula ]] && formulae+=("$formula")
+done < <(brew bundle list --formula --file "$REPO_ROOT/Brewfile")
+
+installed=()
+for formula in "${formulae[@]}"; do
+  brew list --formula "$formula" >/dev/null 2>&1 && installed+=("$formula")
+done
+
+if ((${#installed[@]})); then
+  brew upgrade "${installed[@]}"
+  brew cleanup "${installed[@]}"
+fi
+
+casks=()
+while IFS= read -r cask; do
+  [[ -n $cask ]] && casks+=("$cask")
+done < <(brew bundle list --cask --file "$REPO_ROOT/Brewfile")
+
+installed_casks=()
+for cask in "${casks[@]}"; do
+  brew list --cask "$cask" >/dev/null 2>&1 && installed_casks+=("$cask")
+done
+
+if ((${#installed_casks[@]})); then
+  brew upgrade --cask "${installed_casks[@]}"
+fi
+
+cd "$HOME"
+mise use -g --pin node@lts bun@latest go@latest python@latest npm:pnpm@latest npm:@openai/codex@latest
+mise reshim
+
+if ! git -C "$REPO_ROOT" diff --quiet -- config/mise/config.toml 2>/dev/null; then
+  printf '\nRuntime pins changed. Review and commit config/mise/config.toml.\n'
+fi
+
+printf '\nDeveloper tools are current. Run dev-doctor for a health report.\n'

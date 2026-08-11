@@ -1,0 +1,46 @@
+# Shared login environment for Zsh and Bash.
+
+# Rebuild from macOS's current system path files so stale paths inherited from
+# an older login session cannot leak into new terminals.
+if [ -x /usr/libexec/path_helper ]; then
+  PATH=
+  eval "$(/usr/libexec/path_helper -s)"
+else
+  PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+fi
+
+path_prepend() {
+  [ -d "$1" ] || return 0
+  case ":${PATH}:" in
+    *":$1:"*) ;;
+    *) PATH="$1:${PATH}" ;;
+  esac
+}
+
+# Homebrew uses /opt/homebrew on Apple Silicon and /usr/local on Intel Macs.
+if [ -x /opt/homebrew/bin/brew ]; then
+  HOMEBREW_PREFIX="/opt/homebrew"
+elif [ -x /usr/local/bin/brew ]; then
+  HOMEBREW_PREFIX="/usr/local"
+else
+  HOMEBREW_PREFIX=""
+fi
+
+# Add from lowest to highest priority because each new entry is prepended.
+if [ -n "$HOMEBREW_PREFIX" ]; then
+  path_prepend "$HOMEBREW_PREFIX/bin"
+  path_prepend "$HOMEBREW_PREFIX/sbin"
+fi
+path_prepend "/Applications/Ghostty.app/Contents/MacOS"
+path_prepend "$HOME/.local/bin"
+path_prepend "$HOME/.local/share/mise/shims"
+export HOMEBREW_PREFIX PATH
+
+export EDITOR="nvim"
+export VISUAL="$EDITOR"
+export PAGER="less"
+export LESS="-FRX"
+
+export DO_NOT_TRACK="1"
+export HOMEBREW_NO_ANALYTICS="1"
+export HOMEBREW_NO_ENV_HINTS="1"

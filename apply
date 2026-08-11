@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+resolve_source() {
+  local source_path=${BASH_SOURCE[0]}
+  while [[ -L $source_path ]]; do
+    local source_dir
+    source_dir=$(cd "$(dirname "$source_path")" && pwd)
+    source_path=$(readlink "$source_path")
+    [[ $source_path = /* ]] || source_path="$source_dir/$source_path"
+  done
+  cd "$(dirname "$source_path")" && pwd
+}
+
+REPO_ROOT=$(resolve_source)
+update=0
+check=0
+dry_run=0
+skip_packages=0
+skip_postinstall=0
+target_home=$HOME
+bootstrap_args=()
+
+usage() {
+  cat <<'USAGE'
+Usage: apply [options]
+
+Reconcile this Mac with the dotfiles repository.
+
+  --update             Reconcile, then upgrade declared tools and runtime pins
+  --check              Run repository tests and the live workstation doctor
+  --dry-run            Preview bootstrap changes without applying them
+  --skip-packages      Reconcile configuration without Homebrew work
+  --skip-postinstall   Skip runtimes and OMP/Codex/Herdr integration
+  --target-home PATH   Install links under PATH (used by tests)
+  --yes                Accept non-destructive bootstrap prompts
+  --help               Show this help
+
+The command never pulls Git changes automatically. Review and pull the
+repository separately before applying it.
+USAGE
+}
+
+while (($#)); do
+  case "$1" in
+    --update)
+      update=1
+      ;;
+    --check)
+      check=1
+      ;;
+    --dry-run)
+      dry_run=1
+      bootstrap_args+=(--dry-run)
+      ;;
+    --skip-packages)
+      skip_packages=1
+      bootstrap_args+=(--skip-packages)
+      ;;
+    --skip-postinstall)
+      skip_postinstall=1
+      bootstrap_args+=(--skip-postinstall)
+      ;;
+    --target-home)
+      shift
+      [[ $# -gt 0 ]] || { printf 'Missing path for --target-home\n' >&2; exit 2; }
+      target_home=$1
+      bootstrap_args+=(--target-home "$target_home")
+      ;;
+    --yes)
+      bootstrap_args+=(--yes)
+      ;;
+    --help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'Unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+if ((check)); then
+  if ((update || dry_run || skip_packages || skip_postinstall)) || [[ $target_home != "$HOME" ]]; then
+    printf '%s\n' '--check cannot be combined with reconciliation options.' >&2
+    exit 2
+  fi
+  printf '\nRepository checks\n'
+  "$REPO_ROOT/scripts/test"
+  printf '\nWorkstation checks\n'
+  exec "$REPO_ROOT/bin/dev-doctor"
+fi
+
+if ((update)) && { ((dry_run || skip_packages || skip_postinstall)) || [[ $target_home != "$HOME" ]]; }; then
+  printf '%s\n' '--update must target the real home and cannot skip or dry-run phases.' >&2
+  exit 2
+fi
+
+printf '\nApplying declared workstation state\n'
+"$REPO_ROOT/bootstrap" "${bootstrap_args[@]}"
+
+if ((update)); then
+  printf '\nUpdating declared tools\n'
+  DOTFILES_BREW_UPDATED=1 "$REPO_ROOT/bin/dev-update"
+fi
+
+printf '\nApply complete\n'
+printf '  Verify the result with: apply --check\n'

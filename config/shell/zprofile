@@ -1,0 +1,5 @@
+# Zsh login shells do not read ~/.profile automatically.
+[[ -r "$HOME/.profile" ]] && source "$HOME/.profile"
+
+# Keep PATH stable when macOS path_helper and nested shells add duplicates.
+typeset -U path PATH

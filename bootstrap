@@ -1,0 +1,214 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+TARGET_HOME=${HOME}
+DRY_RUN=0
+SKIP_PACKAGES=0
+SKIP_POSTINSTALL=0
+
+usage() {
+  cat <<'USAGE'
+Usage: ./bootstrap [options]
+
+  --dry-run            Print every change without applying it
+  --skip-packages      Do not install or update Homebrew packages
+  --skip-postinstall   Do not install runtimes or configure OMP/Codex/Herdr
+  --target-home PATH   Install links under PATH (for testing)
+  --yes                Accept non-destructive setup prompts
+  --help               Show this help
+USAGE
+}
+
+while (($#)); do
+  case "$1" in
+    --dry-run) DRY_RUN=1 ;;
+    --skip-packages) SKIP_PACKAGES=1 ;;
+    --skip-postinstall) SKIP_POSTINSTALL=1 ;;
+    --target-home)
+      shift
+      [[ $# -gt 0 ]] || { printf 'Missing path for --target-home\n' >&2; exit 2; }
+      TARGET_HOME=$1
+      ;;
+    --yes) : ;;
+    --help) usage; exit 0 ;;
+    *) printf 'Unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+  esac
+  shift
+done
+
+[[ $TARGET_HOME = /* ]] || { printf 'Target home must be an absolute path.\n' >&2; exit 2; }
+
+say() { printf '  %s\n' "$*"; }
+
+run() {
+  if ((DRY_RUN)); then
+    printf '  would run:'
+    printf ' %q' "$@"
+    printf '\n'
+  else
+    "$@"
+  fi
+}
+
+ensure_dir() {
+  if ((DRY_RUN)); then
+    say "would create directory $1"
+  else
+    mkdir -p "$1"
+  fi
+}
+
+if [[ $(uname -s) != Darwin ]]; then
+  printf 'This setup currently supports macOS only.\n' >&2
+  exit 1
+fi
+
+if ((SKIP_PACKAGES == 0)); then
+  printf '\nPackages\n'
+  if ! xcode-select -p >/dev/null 2>&1; then
+    printf 'Install Command Line Tools first with: xcode-select --install\n' >&2
+    exit 1
+  fi
+
+  if [[ -x /opt/homebrew/bin/brew ]]; then
+    BREW=/opt/homebrew/bin/brew
+  elif [[ -x /usr/local/bin/brew ]]; then
+    BREW=/usr/local/bin/brew
+  else
+    printf 'Homebrew is missing. Install it from https://brew.sh, then rerun bootstrap.\n' >&2
+    exit 1
+  fi
+
+  run "$BREW" update
+  run "$BREW" bundle install --file "$REPO_ROOT/Brewfile" --no-upgrade
+fi
+
+timestamp=$(date +%Y%m%d-%H%M%S)
+BACKUP_ROOT="$TARGET_HOME/.config/dotfiles-backups/$timestamp"
+backup_used=0
+
+link_file() {
+  source_path=$1
+  target_path=$2
+
+  if [[ -L $target_path ]] && [[ $(readlink "$target_path") == "$source_path" ]]; then
+    say "already linked ${target_path#"$TARGET_HOME"/}"
+    return
+  fi
+
+  if [[ -e $target_path || -L $target_path ]]; then
+    relative=${target_path#"$TARGET_HOME"/}
+    backup_path="$BACKUP_ROOT/$relative"
+    if ((DRY_RUN)); then
+      say "would back up $target_path to $backup_path"
+    else
+      mkdir -p "$(dirname "$backup_path")"
+      mv "$target_path" "$backup_path"
+    fi
+    backup_used=1
+  fi
+
+  if ((DRY_RUN)); then
+    say "would link $target_path -> $source_path"
+  else
+    mkdir -p "$(dirname "$target_path")"
+    ln -s "$source_path" "$target_path"
+  fi
+}
+
+printf '\nConfiguration\n'
+sources=(
+  "$REPO_ROOT/config/shell/profile"
+  "$REPO_ROOT/config/shell/zprofile"
+  "$REPO_ROOT/config/shell/zshrc"
+  "$REPO_ROOT/config/shell/zlogin"
+  "$REPO_ROOT/config/shell/bash_profile"
+  "$REPO_ROOT/config/shell/bashrc"
+  "$REPO_ROOT/config/ghostty/config.ghostty"
+  "$REPO_ROOT/config/herdr/config.toml"
+  "$REPO_ROOT/config/mise/config.toml"
+  "$REPO_ROOT/config/starship/starship.toml"
+  "$REPO_ROOT/config/git/gitconfig"
+  "$REPO_ROOT/apply"
+  "$REPO_ROOT/bin/dev-update"
+  "$REPO_ROOT/bin/dev-doctor"
+  "$REPO_ROOT/bin/configure-codex"
+)
+targets=(
+  "$TARGET_HOME/.profile"
+  "$TARGET_HOME/.zprofile"
+  "$TARGET_HOME/.zshrc"
+  "$TARGET_HOME/.zlogin"
+  "$TARGET_HOME/.bash_profile"
+  "$TARGET_HOME/.bashrc"
+  "$TARGET_HOME/.config/ghostty/config.ghostty"
+  "$TARGET_HOME/.config/herdr/config.toml"
+  "$TARGET_HOME/.config/mise/config.toml"
+  "$TARGET_HOME/.config/starship.toml"
+  "$TARGET_HOME/.gitconfig"
+  "$TARGET_HOME/.local/bin/apply"
+  "$TARGET_HOME/.local/bin/dev-update"
+  "$TARGET_HOME/.local/bin/dev-doctor"
+  "$TARGET_HOME/.local/bin/configure-codex"
+)
+
+for index in "${!sources[@]}"; do
+  link_file "${sources[$index]}" "${targets[$index]}"
+done
+
+codex_args=(--target-home "$TARGET_HOME")
+if ((DRY_RUN)); then
+  codex_args+=(--dry-run)
+fi
+"$REPO_ROOT/bin/configure-codex" "${codex_args[@]}"
+
+# Keep secret scanning local to this repository. A global hooksPath would
+# silently disable project-specific hooks in unrelated repositories.
+if [[ -d $REPO_ROOT/.git ]]; then
+  run git -C "$REPO_ROOT" config --local core.hooksPath .githooks
+fi
+
+if [[ ! -e $TARGET_HOME/.zshrc.local ]]; then
+  if ((DRY_RUN)); then
+    say "would create private .zshrc.local"
+  else
+    install -m 600 /dev/null "$TARGET_HOME/.zshrc.local"
+  fi
+fi
+
+if [[ ! -e $TARGET_HOME/.gitconfig.local ]]; then
+  if ((DRY_RUN)); then
+    say "would create private .gitconfig.local from the example"
+  else
+    install -m 600 "$REPO_ROOT/config/git/gitconfig.local.example" "$TARGET_HOME/.gitconfig.local"
+  fi
+fi
+
+# Existing local overrides may predate this repository. Keep their contents,
+# but normalize their permissions because they can contain machine-local data.
+run chmod 600 "$TARGET_HOME/.zshrc.local" "$TARGET_HOME/.gitconfig.local"
+
+if ((backup_used)); then
+  say "previous files preserved in $BACKUP_ROOT"
+fi
+
+if ((SKIP_POSTINSTALL == 0)) && [[ $TARGET_HOME == "$HOME" ]] && ((DRY_RUN == 0)); then
+  printf '\nRuntimes and integrations\n'
+  # shellcheck disable=SC1091
+  source "$TARGET_HOME/.profile"
+  mise install
+  mise reshim
+  git lfs install --skip-repo
+  omp config set tools.approvalMode write
+  omp config set secrets.enabled true
+  mkdir -p "$HOME/.omp/agent"
+  chmod 700 "$HOME/.omp" "$HOME/.omp/agent"
+  find "$HOME/.omp/agent" -maxdepth 1 -type f -exec chmod 600 {} \;
+  herdr integration install omp
+  herdr integration install codex
+fi
+
+printf '\nReady\n'
+say "Run dev-doctor, then open a fresh Ghostty window."
+say "Authenticate separately with gh auth login and OMP /login."
