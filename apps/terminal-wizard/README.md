@@ -9,12 +9,18 @@ Ghostty → zsh + Starship → Herdr → OMP / Codex
 
 The browser terminal is powered by
 [`wterm`](https://github.com/vercel-labs/wterm), its libghostty WASM core, and
-`just-bash`. It teaches the declared toolchain in eight short lessons while
+`just-bash`. It teaches the declared toolchain in ten short lessons while
 keeping the default experience isolated from the Mac.
 
 ## Run locally
 
-From the dotfiles repository:
+After applying the dotfiles, run:
+
+```bash
+terminal-wizard
+```
+
+Or run the app directly from the repository:
 
 ```bash
 cd apps/terminal-wizard
@@ -55,12 +61,14 @@ The scanner asks for read access only, limits depth, entries, individual files,
 and total decoded bytes, rejects binary/invalid UTF-8, removes terminal controls,
 and blocks or redacts common credential patterns. Heuristics cannot recognize
 every possible secret, so choose a narrow project or dotfiles directory—never
-the home directory.
+the home directory. The browser works from a point-in-time copy; use **Refresh
+snapshot** in the folder card after files change on disk.
 
 ### Live Mac (explicit opt-in)
 
 Live Mac is a real `/bin/zsh -l` PTY with the user’s full permissions. Opening
-it requires typing `LIVE`. The bridge:
+it requires typing `LIVE`. The shell starts at the checked-out dotfiles root so
+course commands inspect the same project in Practice and Live. The bridge:
 
 - binds only to `127.0.0.1:4318`;
 - checks the exact browser Origin, HTTP Host, WebSocket path, and loopback peer;

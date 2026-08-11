@@ -85,8 +85,44 @@ if ((SKIP_PACKAGES == 0)); then
 fi
 
 timestamp=$(date +%Y%m%d-%H%M%S)
-BACKUP_ROOT="$TARGET_HOME/.config/dotfiles-backups/$timestamp"
+BACKUP_PARENT="$TARGET_HOME/.config/dotfiles-backups"
+BACKUP_ROOT="$BACKUP_PARENT/$timestamp.XXXXXX"
 backup_used=0
+
+harden_backup_tree() {
+  [[ -d $BACKUP_PARENT ]] || return 0
+  if ((DRY_RUN)); then
+    say "would restrict existing backup permissions under $BACKUP_PARENT"
+    return
+  fi
+  find -P "$BACKUP_PARENT" -type d -exec chmod 700 {} +
+  find -P "$BACKUP_PARENT" -type f -exec chmod go-rwx {} +
+}
+
+prepare_backup_root() {
+  ((backup_used == 0)) || return 0
+  if ((DRY_RUN)); then
+    say "would create a unique private backup directory matching $BACKUP_ROOT"
+  else
+    install -d -m 700 "$BACKUP_PARENT"
+    BACKUP_ROOT=$(mktemp -d "$BACKUP_ROOT")
+    chmod 700 "$BACKUP_ROOT"
+  fi
+  backup_used=1
+}
+
+secure_backup_path() {
+  local path=$1
+  [[ -L $path ]] && return
+  if [[ -d $path ]]; then
+    find -P "$path" -type d -exec chmod 700 {} +
+    find -P "$path" -type f -exec chmod go-rwx {} +
+  elif [[ -f $path ]]; then
+    chmod go-rwx "$path"
+  fi
+}
+
+harden_backup_tree
 
 link_file() {
   source_path=$1
@@ -98,6 +134,7 @@ link_file() {
   fi
 
   if [[ -e $target_path || -L $target_path ]]; then
+    prepare_backup_root
     relative=${target_path#"$TARGET_HOME"/}
     backup_path="$BACKUP_ROOT/$relative"
     if ((DRY_RUN)); then
@@ -105,8 +142,8 @@ link_file() {
     else
       mkdir -p "$(dirname "$backup_path")"
       mv "$target_path" "$backup_path"
+      secure_backup_path "$backup_path"
     fi
-    backup_used=1
   fi
 
   if ((DRY_RUN)); then
@@ -134,6 +171,7 @@ sources=(
   "$REPO_ROOT/bin/dev-update"
   "$REPO_ROOT/bin/dev-doctor"
   "$REPO_ROOT/bin/configure-codex"
+  "$REPO_ROOT/bin/terminal-wizard"
 )
 targets=(
   "$TARGET_HOME/.profile"
@@ -151,6 +189,7 @@ targets=(
   "$TARGET_HOME/.local/bin/dev-update"
   "$TARGET_HOME/.local/bin/dev-doctor"
   "$TARGET_HOME/.local/bin/configure-codex"
+  "$TARGET_HOME/.local/bin/terminal-wizard"
 )
 
 for index in "${!sources[@]}"; do

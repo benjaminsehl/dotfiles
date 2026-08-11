@@ -1,9 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const workspaceRoot = resolve(projectRoot, "../..");
 const mode = process.argv[2] === "start" ? "start" : "dev";
 const token = randomBytes(32).toString("hex");
 const bin = (name) => join(projectRoot, "node_modules", ".bin", name);
@@ -31,7 +32,11 @@ const webEnvironment = {
   WIZARD_ALLOWED_ORIGIN: "http://127.0.0.1:4317",
   WIZARD_PTY_PORT: "4318",
 };
-const ptyEnvironment = { ...webEnvironment, WIZARD_SESSION_TOKEN: token };
+const ptyEnvironment = {
+  ...webEnvironment,
+  WIZARD_SESSION_TOKEN: token,
+  WIZARD_WORKSPACE_ROOT: workspaceRoot,
+};
 
 const webArguments =
   mode === "dev"

@@ -34,7 +34,7 @@ test("normalizes persisted lesson progress conservatively", () => {
       __proto__: ["0"],
     }),
     {
-      orientation: ["0", "2", "__complete__"],
+      orientation: ["0", "2"],
     },
   );
   assert.deepEqual(normalizeProgress(null), {});
@@ -43,19 +43,22 @@ test("normalizes persisted lesson progress conservatively", () => {
 
 test("round-trips and clears browser progress persistence", () => {
   const storage = new MemoryStorage();
+  storage.values.set("terminal-wizard.progress.v1", JSON.stringify({ orientation: ["5"] }));
   persistProgress(storage, {
     orientation: ["0", "1"],
-    git: ["__complete__"],
+    git: ["0", "3"],
   });
 
   assert.deepEqual(readProgress(storage), {
     orientation: ["0", "1"],
-    git: ["__complete__"],
+    git: ["0", "3"],
   });
   assert.ok(storage.values.has(PROGRESS_STORAGE_KEY));
+  assert.equal(storage.values.has("terminal-wizard.progress.v1"), false);
 
   clearProgress(storage);
   assert.equal(storage.values.has(PROGRESS_STORAGE_KEY), false);
+  assert.equal(storage.values.has("terminal-wizard.progress.v1"), false);
   assert.deepEqual(readProgress(storage), {});
 });
 

@@ -4,12 +4,14 @@ set -euo pipefail
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$REPO_ROOT"
 
-bash -n apply bootstrap bin/configure-codex bin/dev-update bin/dev-doctor scripts/check-links scripts/check-manifest scripts/check-modes
+bash -n apply bootstrap bin/configure-codex bin/dev-update bin/dev-doctor bin/terminal-wizard scripts/check-links scripts/check-manifest scripts/check-modes scripts/sync-manifest-versions
 zsh -n config/shell/profile config/shell/zprofile config/shell/zshrc config/shell/zlogin
 
 if command -v shellcheck >/dev/null 2>&1; then
-  shellcheck apply bootstrap bin/configure-codex bin/dev-update bin/dev-doctor scripts/check-links scripts/check-manifest scripts/check-modes
+  shellcheck apply bootstrap bin/configure-codex bin/dev-update bin/dev-doctor bin/terminal-wizard scripts/check-links scripts/check-manifest scripts/check-modes scripts/sync-manifest-versions
 fi
+
+bin/terminal-wizard --help >/dev/null
 
 scripts/check-manifest
 
@@ -32,6 +34,9 @@ cleanup() {
 trap cleanup EXIT
 
 printf 'legacy config\n' > "$temp_home/.zshrc"
+mkdir -p "$temp_home/.local/bin"
+printf '#!/bin/sh\nprintf "legacy launcher\\n"\n' > "$temp_home/.local/bin/terminal-wizard"
+chmod 755 "$temp_home/.local/bin/terminal-wizard"
 mkdir -p "$temp_home/.codex"
 cat > "$temp_home/.codex/config.toml" <<'TOML'
 model = "keep-me"
@@ -60,6 +65,13 @@ second_codex_checksum=$(shasum -a 256 "$temp_home/.codex/config.toml")
 [[ $first_codex_checksum == "$second_codex_checksum" ]]
 [[ $(find "$temp_home/.config/dotfiles-backups" -name .zshrc -type f | wc -l | tr -d ' ') == 1 ]]
 [[ $(find "$temp_home/.config/dotfiles-backups" -path '*/.codex/config.toml' -type f | wc -l | tr -d ' ') == 1 ]]
+general_backup_file=$(find "$temp_home/.config/dotfiles-backups" -name .zshrc -type f -print -quit)
+general_backup_run=$(dirname "$general_backup_file")
+executable_backup=$(find "$temp_home/.config/dotfiles-backups" -path '*/.local/bin/terminal-wizard' -type f -print -quit)
+[[ $(stat -f '%Lp' "$temp_home/.config/dotfiles-backups") == 700 ]]
+[[ $(stat -f '%Lp' "$general_backup_run") == 700 ]]
+[[ $(stat -f '%Lp' "$general_backup_file") == 600 ]]
+[[ $(stat -f '%Lp' "$executable_backup") == 700 ]]
 
 corrupt_home="$temp_home/corrupt-marker"
 mkdir -p "$corrupt_home/.codex"

@@ -43,7 +43,8 @@ choose **Set Ghostty as Default Terminal App**.
 - `apply --dry-run` previews changes, `apply --check` verifies the setup, and `apply --update` intentionally advances declared tools.
 - `dev-doctor` checks Brewfile drift, symlinks, runtimes, Ghostty, Herdr, OMP/Codex safety and integrations, authentication, and sensitive file modes.
 - `configure-codex` safely applies Codex's on-request, auto-reviewed approval defaults without replacing the rest of its machine-local configuration.
-- `dev-update` updates the declared Homebrew set and refreshes exact mise pins. Pin changes make the repository dirty on purpose so they can be reviewed and committed.
+- `terminal-wizard` starts the local interactive course; `terminal-wizard --check` runs its complete release gate.
+- `dev-update` updates the declared Homebrew set, refreshes exact mise pins, and synchronizes the teaching manifest from live command versions. Declaration changes make the repository dirty on purpose so they can be reviewed and committed.
 - `scripts/test` runs static checks, a secret scan, and a two-pass bootstrap test in an isolated temporary home.
 
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the fast shell vocabulary and the
@@ -63,9 +64,7 @@ text below `/workspace`; Live Mac requires typed consent before opening a real
 loopback-only zsh PTY.
 
 ```bash
-cd ~/Sites/dotfiles/apps/terminal-wizard
-npm ci
-npm run dev
+terminal-wizard
 ```
 
 Then open <http://127.0.0.1:4317>. See

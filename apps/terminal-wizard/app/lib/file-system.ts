@@ -5,6 +5,8 @@ export type PermissionState = "granted" | "prompt" | "denied";
 export type FolderSnapshot = Readonly<{
   label: string;
   permission: PermissionState;
+  remembered: boolean;
+  staleSavedHandle: boolean;
   files: Record<string, string>;
   fileCount: number;
   blockedCount: number;
@@ -154,6 +156,8 @@ type TextReadResult =
 
 let databasePromise: Promise<IDBPDatabase<FileSystemDatabase>> | null = null;
 let currentHandle: FileSystemDirectoryHandle | null = null;
+let currentHandleRemembered = false;
+let staleSavedHandle = false;
 
 const indexedDbHandleStore: HandleStore = {
   async get() {
@@ -215,12 +219,29 @@ export function connectFolder(): Promise<FolderSnapshot> {
   }
 
   return pickerResult.then(async (handle) => {
-    await handleStore.put(handle);
     currentHandle = handle;
+    try {
+      await handleStore.put(handle);
+      currentHandleRemembered = true;
+      staleSavedHandle = false;
+    } catch {
+      currentHandleRemembered = false;
+      try {
+        await handleStore.delete();
+        staleSavedHandle = false;
+      } catch {
+        staleSavedHandle = true;
+      }
+    }
     const permission = normalizePermission(
       await handle.queryPermission({ mode: "read" }),
     );
-    return snapshotFor(handle, permission);
+    return snapshotFor(
+      handle,
+      permission,
+      currentHandleRemembered,
+      staleSavedHandle,
+    );
   });
 }
 
@@ -228,14 +249,18 @@ export async function restoreFolder(): Promise<FolderSnapshot | null> {
   const handle = await handleStore.get();
   if (!handle) {
     currentHandle = null;
+    currentHandleRemembered = false;
+    staleSavedHandle = false;
     return null;
   }
 
   currentHandle = handle;
+  currentHandleRemembered = true;
+  staleSavedHandle = false;
   const permission = normalizePermission(
     await handle.queryPermission({ mode: "read" }),
   );
-  return snapshotFor(handle, permission);
+  return snapshotFor(handle, permission, currentHandleRemembered, false);
 }
 
 /**
@@ -261,13 +286,20 @@ export function reconnectFolder(): Promise<FolderSnapshot> {
   }
 
   return permissionResult.then((permission) =>
-    snapshotFor(handle, normalizePermission(permission)),
+    snapshotFor(
+      handle,
+      normalizePermission(permission),
+      currentHandleRemembered,
+      staleSavedHandle,
+    ),
   );
 }
 
 export async function forgetFolder(): Promise<void> {
   await handleStore.delete();
   currentHandle = null;
+  currentHandleRemembered = false;
+  staleSavedHandle = false;
 }
 
 export function sanitizeTerminalText(value: string): string {
@@ -340,12 +372,16 @@ function normalizePermission(value: globalThis.PermissionState): PermissionState
 async function snapshotFor(
   handle: FileSystemDirectoryHandle,
   permission: PermissionState,
+  remembered: boolean,
+  staleHandle: boolean,
 ): Promise<FolderSnapshot> {
   const label = sanitizeLabel(handle.name);
   if (permission !== "granted") {
     return freezeSnapshot({
       label,
       permission,
+      remembered,
+      staleSavedHandle: staleHandle,
       files: {},
       fileCount: 0,
       blockedCount: 0,
@@ -356,6 +392,8 @@ async function snapshotFor(
     return freezeSnapshot({
       label,
       permission,
+      remembered,
+      staleSavedHandle: staleHandle,
       files: {},
       fileCount: 0,
       blockedCount: 1,
@@ -375,6 +413,8 @@ async function snapshotFor(
   return freezeSnapshot({
     label,
     permission,
+    remembered,
+    staleSavedHandle: staleHandle,
     files: state.files,
     fileCount: Object.keys(state.files).length,
     blockedCount: state.blockedCount,
@@ -387,7 +427,25 @@ async function scanDirectory(
   parentSegments: string[],
   state: ScanState,
 ): Promise<boolean> {
-  for await (const [rawName, entry] of directory.entries()) {
+  let iterator: AsyncIterator<[string, FileSystemHandle]>;
+  try {
+    iterator = directory.entries()[Symbol.asyncIterator]();
+  } catch {
+    state.blockedCount += 1;
+    return true;
+  }
+
+  while (true) {
+    let iteration: IteratorResult<[string, FileSystemHandle]>;
+    try {
+      iteration = await iterator.next();
+    } catch {
+      state.blockedCount += 1;
+      return true;
+    }
+    if (iteration.done) return true;
+
+    const [rawName, entry] = iteration.value;
     if (state.visitedEntries >= FILE_SYSTEM_LIMITS.maxEntries) {
       state.truncated = true;
       return false;
@@ -429,7 +487,13 @@ async function scanDirectory(
       continue;
     }
 
-    const result = await readTextFile(entry as FileSystemFileHandle, name);
+    let result: TextReadResult;
+    try {
+      result = await readTextFile(entry as FileSystemFileHandle, name);
+    } catch {
+      state.blockedCount += 1;
+      continue;
+    }
     if (!result.allowed) {
       state.blockedCount += 1;
       continue;
@@ -447,8 +511,6 @@ async function scanDirectory(
     state.files[path] = result.text;
     state.decodedBytes += result.byteLength;
   }
-
-  return true;
 }
 
 async function readTextFile(
@@ -552,11 +614,26 @@ function firstAssignmentSeparator(line: string): number {
 }
 
 function sanitizeEntryName(value: string): string {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (
+      codePoint !== undefined &&
+      (codePoint <= 0x1f ||
+        (codePoint >= 0x7f && codePoint <= 0x9f) ||
+        codePoint === 0x2028 ||
+        codePoint === 0x2029)
+    ) {
+      return "";
+    }
+  }
   return sanitizeTerminalText(value).replace(/[\\/]/g, "");
 }
 
 function sanitizeLabel(value: string): string {
-  const label = sanitizeEntryName(value).replace(/\s+/g, " ").trim();
+  const label = sanitizeTerminalText(value)
+    .replace(/[\\/]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
   return label.slice(0, 80) || "Selected folder";
 }
 
@@ -568,10 +645,14 @@ function freezeSnapshot(snapshot: FolderSnapshot): FolderSnapshot {
 export const __fileSystemTesting = Object.freeze({
   useHandleStore(store: HandleStore): void {
     currentHandle = null;
+    currentHandleRemembered = false;
+    staleSavedHandle = false;
     handleStore = store;
   },
   reset(): void {
     currentHandle = null;
+    currentHandleRemembered = false;
+    staleSavedHandle = false;
     handleStore = indexedDbHandleStore;
     databasePromise = null;
   },

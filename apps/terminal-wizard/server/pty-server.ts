@@ -1,4 +1,5 @@
 import { createHmac, randomBytes } from "node:crypto";
+import { existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { homedir, userInfo } from "node:os";
 import { resolve } from "node:path";
@@ -21,6 +22,18 @@ const idleTimeoutMs = (() => {
 })();
 const ticketLifetimeMs = 30_000;
 const maximumBufferedOutput = 1_048_576;
+const shellWorkingDirectory = (() => {
+  const configured = process.env.WIZARD_WORKSPACE_ROOT;
+  if (!configured) return resolve(homedir());
+  const candidate = resolve(configured);
+  try {
+    return existsSync(candidate) && statSync(candidate).isDirectory()
+      ? candidate
+      : resolve(homedir());
+  } catch {
+    return resolve(homedir());
+  }
+})();
 
 if (!/^[a-f0-9]{64}$/.test(sessionToken)) {
   throw new Error("WIZARD_SESSION_TOKEN must be a fresh 32-byte hexadecimal value");
@@ -229,7 +242,7 @@ socketServer.on("connection", (socket) => {
           name: "xterm-ghostty",
           cols: message.cols,
           rows: message.rows,
-          cwd: resolve(homedir()),
+          cwd: shellWorkingDirectory,
           env: cleanShellEnvironment(),
         });
         socketPty = spawnedPty;

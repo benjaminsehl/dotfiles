@@ -25,7 +25,9 @@ import {
 
 function isComplete(progress: Progress, lessonId: string, commandCount: number): boolean {
   const entries = progress[lessonId] ?? [];
-  return entries.includes("__complete__") || entries.length >= commandCount;
+  return Array.from({ length: commandCount }, (_, index) => String(index)).every((index) =>
+    entries.includes(index),
+  );
 }
 
 export function TerminalWizard() {
@@ -111,12 +113,12 @@ export function TerminalWizard() {
     setProgress({});
   };
 
-  const recordCommand = useCallback((command: string) => {
+  const recordCommand = useCallback((command: string, commandMode: TerminalMode) => {
     setProgress((current) => {
       const next: Progress = { ...current };
       for (const lesson of lessons) {
         lesson.commands.forEach((lessonCommand, index) => {
-          if (!commandMatches(command, lessonCommand)) return;
+          if (!commandMatches(command, lessonCommand, commandMode)) return;
           const entries = new Set(next[lesson.id] ?? []);
           entries.add(String(index));
           next[lesson.id] = [...entries];
@@ -125,13 +127,6 @@ export function TerminalWizard() {
       return next;
     });
   }, []);
-
-  const markLessonComplete = () => {
-    setProgress((current) => ({
-      ...current,
-      [selectedLesson.id]: [...new Set([...(current[selectedLesson.id] ?? []), "__complete__"])],
-    }));
-  };
 
   const chooseFolder = async () => {
     setFolderMessage("");
@@ -158,18 +153,24 @@ export function TerminalWizard() {
       setFolder(snapshot);
       setFolderRevision((revision) => revision + 1);
       setMode("practice");
+      setFolderMessage(`Snapshot refreshed: ${snapshot.fileCount} safe text files are available under /workspace.`);
     } catch (error) {
-      setFolderMessage(error instanceof Error ? error.message : "Chrome did not restore folder access.");
+      setFolderMessage(error instanceof Error ? error.message : "The browser did not restore folder access.");
     } finally {
       setFolderBusy(false);
     }
   };
 
   const forget = async () => {
-    await forgetFolder();
-    setFolder(null);
-    setFolderRevision((revision) => revision + 1);
-    setFolderMessage("Folder forgotten here. Persistent browser permission can also be revoked in Chrome site settings.");
+    setFolderMessage("");
+    try {
+      await forgetFolder();
+      setFolder(null);
+      setFolderRevision((revision) => revision + 1);
+      setFolderMessage("Folder forgotten here. Persistent browser permission can also be revoked in browser site settings.");
+    } catch {
+      setFolderMessage("The browser could not forget the saved folder. Clear this site's stored data before relying on a reload to remove it.");
+    }
   };
 
   const beginLive = () => {
@@ -202,7 +203,7 @@ export function TerminalWizard() {
         </div>
         <div className="progress-summary">
           <span className="progress-ring" aria-hidden="true" style={{ "--progress": `${(completedLessons / lessons.length) * 360}deg` } as React.CSSProperties} />
-          <span className="progress-copy" aria-label={`${completedLessons} of ${lessons.length} lessons complete`}><strong>{completedLessons}/{lessons.length}</strong> mastered</span>
+          <span className="progress-copy" aria-label={`${completedLessons} of ${lessons.length} lessons complete`}><strong>{completedLessons}/{lessons.length}</strong> complete</span>
           <button
             className="progress-reset"
             type="button"
@@ -263,17 +264,30 @@ export function TerminalWizard() {
                 <>
                   <p><strong>{folder.label}</strong> · {folder.fileCount} text files · {folder.blockedCount} protected</p>
                   {folder.permission === "granted" ? (
-                    <span className="folder-state"><i /> Read-only snapshot ready</span>
+                    <>
+                      <span className="folder-state"><i /> Read-only snapshot ready{folder.remembered ? "" : " · session only"}</span>
+                      <button className="text-button" onClick={() => void reconnect()} disabled={folderBusy}>
+                        {folderBusy ? "Refreshing snapshot…" : "Refresh snapshot"}
+                      </button>
+                    </>
                   ) : (
-                    <button className="text-button" onClick={() => void reconnect()} disabled={folderBusy}>Reconnect in Chrome</button>
+                    <button className="text-button" onClick={() => void reconnect()} disabled={folderBusy}>Reconnect folder</button>
                   )}
                   <button className="text-button muted" onClick={() => void forget()}>Forget folder</button>
+                  {folder.staleSavedHandle ? (
+                    <p className="folder-message" role="alert">This snapshot is session-only, but the browser could not clear an older saved folder. Use Forget folder, or clear this site’s stored data.</p>
+                  ) : !folder.remembered ? (
+                    <p className="folder-message" role="status">The browser could not remember this folder. This snapshot lasts until the page reloads or closes.</p>
+                  ) : null}
+                  {folder.truncated ? (
+                    <p className="folder-message" role="status">This snapshot reached a safety limit. Choose a narrower folder if you need a complete project view.</p>
+                  ) : null}
                 </>
               ) : (
                 <>
                   <p>Choose a narrow project or dotfiles folder—never your home directory. Common secrets are blocked or redacted; heuristics cannot guarantee every secret.</p>
                   <button className="folder-button" onClick={() => void chooseFolder()} disabled={!pickerSupported || folderBusy}>
-                    {folderBusy ? "Reading safe files…" : pickerSupported ? "Choose folder" : "Chrome required"}
+                    {folderBusy ? "Reading safe files…" : pickerSupported ? "Choose folder" : "Folder access unavailable"}
                   </button>
                 </>
               )}
@@ -300,7 +314,7 @@ export function TerminalWizard() {
             </div>
             {mode === "live" ? (
               <div className="live-warning" role="alert">
-                <strong>Live Mac is real.</strong> Commands have your full user permissions. Lesson buttons still insert text only; press Return yourself.
+                <strong>Live Mac is real.</strong> It starts in <code>~/Sites/dotfiles</code>, and commands have your full user permissions. Lesson buttons still insert text only; press Return yourself.
               </div>
             ) : null}
             <WizardTerminal
@@ -308,20 +322,20 @@ export function TerminalWizard() {
               ref={terminalRef}
               mode={mode}
               files={folder?.permission === "granted" ? folder.files : {}}
-              onCommand={recordCommand}
+              onCommand={(command) => recordCommand(command, mode)}
             />
           </div>
 
           <article className="lesson-content">
             <div className="lesson-intro">
               <div>
-                <p className="eyebrow">Lesson {selectedLesson.number} · {selectedLesson.kicker}</p>
+                <p className="eyebrow">Lesson {selectedLesson.number} · {selectedLesson.kicker} · {selectedLesson.level} · {selectedLesson.minutes} min</p>
                 <h2>{selectedLesson.title}</h2>
                 <p>{selectedLesson.summary}</p>
               </div>
               <div className={`lesson-score ${lessonComplete ? "complete" : ""}`}>
-                <strong>{lessonComplete ? "Mastered" : `${practicedCount}/${selectedLesson.commands.length}`}</strong>
-                <span>{lessonComplete ? "Nice. Keep using it." : "commands practiced"}</span>
+                <strong>{lessonComplete ? "Complete" : `${practicedCount}/${selectedLesson.commands.length}`}</strong>
+                <span>{lessonComplete ? "All moves practiced." : "commands practiced"}</span>
               </div>
             </div>
 
@@ -334,20 +348,25 @@ export function TerminalWizard() {
                 <div className="command-list">
                   {selectedLesson.commands.map((item, index) => {
                     const practiced = lessonEntries.includes(String(index));
+                    const requiredMode = item.mode ?? "either";
+                    const available = requiredMode === "either" || requiredMode === mode;
+                    const accessLabel = requiredMode === "practice" ? "Practice lab" : requiredMode === "live" ? "Live only" : "Either mode";
                     return (
-                      <div className={`command-row ${practiced ? "practiced" : ""}`} key={item.command}>
+                      <div className={`command-row ${practiced ? "practiced" : ""} ${available ? "" : "unavailable"}`} key={item.command}>
                         <div>
-                          <code>{item.command}</code>
+                          <div className="command-heading"><code>{item.command}</code><span className={`command-access ${requiredMode}`}>{accessLabel}</span></div>
                           <p><strong>{item.label}</strong> — {item.detail}</p>
                         </div>
                         <button
+                          disabled={!available}
                           onClick={() => {
+                            if (!available) return;
                             terminalRef.current?.insertCommand(item.command);
                             terminalRef.current?.focus();
                           }}
-                          aria-label={`Insert ${item.command} in the terminal without running it`}
+                          aria-label={available ? `Insert ${item.command} in the terminal without running it` : `Switch to ${requiredMode} mode to use ${item.command}`}
                         >
-                          {practiced ? "Again" : "Insert"}<span aria-hidden="true"> ↗</span>
+                          {available ? (practiced ? "Again" : "Insert") : requiredMode === "live" ? "Use Live" : "Use Practice"}{available ? <span aria-hidden="true"> ↗</span> : null}
                         </button>
                       </div>
                     );
@@ -359,9 +378,11 @@ export function TerminalWizard() {
                 <div className="section-heading"><div><span className="section-number">B</span><h3 id="notes-title">Field notes</h3></div></div>
                 <p className="outcome"><span aria-hidden="true">◎</span><strong>Outcome</strong>{selectedLesson.outcome}</p>
                 <ul>{selectedLesson.fieldNotes.map((note) => <li key={note}>{note}</li>)}</ul>
-                <button className={`master-button ${lessonComplete ? "complete" : ""}`} onClick={markLessonComplete} disabled={lessonComplete}>
-                  {lessonComplete ? "✓ Lesson mastered" : "Mark as understood"}
-                </button>
+                <div className={`master-status ${lessonComplete ? "complete" : ""}`} role="status">
+                  {lessonComplete
+                    ? "✓ Every taught command was practiced"
+                    : `${selectedLesson.commands.length - practicedCount} command${selectedLesson.commands.length - practicedCount === 1 ? "" : "s"} left to complete this lesson`}
+                </div>
               </aside>
             </div>
           </article>

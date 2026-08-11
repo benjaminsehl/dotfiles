@@ -789,6 +789,47 @@ a {
   box-shadow: inset 3px 0 var(--green);
 }
 
+.command-row.unavailable {
+  opacity: 0.62;
+}
+
+.command-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.command-heading code {
+  flex: 1;
+  min-width: 0;
+}
+
+.command-access {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.command-access.live {
+  border-color: rgba(192, 73, 58, 0.24);
+  background: rgba(192, 73, 58, 0.07);
+  color: #9d3f35;
+}
+
+.command-access.practice {
+  border-color: rgba(51, 89, 200, 0.2);
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
 .command-row code,
 .live-dialog code {
   font-family: var(--mono);
@@ -830,6 +871,13 @@ a {
 .command-row > button:hover {
   transform: translateY(-1px);
   border-color: rgba(51, 89, 200, 0.32);
+}
+
+.command-row > button:disabled {
+  transform: none;
+  border-color: var(--line);
+  color: var(--ink-soft);
+  cursor: not-allowed;
 }
 
 .field-notes {
@@ -890,7 +938,7 @@ a {
   content: "";
 }
 
-.master-button {
+.master-status {
   width: 100%;
   margin-top: 18px;
   padding: 11px 14px;
@@ -900,14 +948,13 @@ a {
   color: white;
   font-size: 10px;
   font-weight: 700;
-  cursor: pointer;
+  text-align: center;
 }
 
-.master-button.complete {
+.master-status.complete {
   border-color: rgba(63, 114, 84, 0.18);
   background: var(--green-soft);
   color: var(--green);
-  cursor: default;
 }
 
 footer {

@@ -75,12 +75,12 @@ test("derives every simulated version and safety status from the manifest", () =
 
   assert.match(
     practiceDoctorOutput,
-    new RegExp(`OMP approval mode: ${manifestOnDisk.safety.ompApprovalMode}`),
+    new RegExp(`OMP approval mode target: ${manifestOnDisk.safety.ompApprovalMode}`),
   );
   assert.match(
     practiceDoctorOutput,
     new RegExp(
-      `OMP secret masking: ${manifestOnDisk.safety.ompSecretsEnabled ? "enabled" : "disabled"}`,
+      `OMP secret masking target: ${manifestOnDisk.safety.ompSecretsEnabled ? "enabled" : "disabled"}`,
     ),
   );
 });
@@ -107,6 +107,23 @@ test("keeps lesson version and approval copy aligned with the manifest", () => {
     `${agents.summary}\n${agents.commands.map((command) => command.detail).join("\n")}`,
     new RegExp(manifestOnDisk.safety.ompApprovalMode, "i"),
   );
+});
+
+test("turns every declared learning path, shortcut, alias, and workflow into curriculum", () => {
+  assert.deepEqual(
+    [...new Set(lessons.flatMap((lesson) => lesson.manifestPathId ? [lesson.manifestPathId] : []))].sort(),
+    manifestOnDisk.learningPaths.map((path) => path.id).sort(),
+  );
+
+  const curriculum = JSON.stringify(lessons);
+  for (const shortcut of manifestOnDisk.shortcuts) assert.match(curriculum, new RegExp(shortcut.keys.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  for (const alias of manifestOnDisk.aliases) {
+    assert.match(curriculum, new RegExp(`\\b${alias.name}\\b`));
+    assert.match(curriculum, new RegExp(alias.expandsTo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  for (const workflow of manifestOnDisk.workflows) {
+    assert.match(curriculum, new RegExp(workflow.command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
 });
 
 test("does not reintroduce version literals beside the manifest adapter", () => {

@@ -76,6 +76,7 @@ run_check "Brewfile" brew bundle check --file "$REPO_ROOT/Brewfile"
 run_check "Dotfile links" "$REPO_ROOT/scripts/check-links"
 empty_check "Outdated Homebrew packages" env HOMEBREW_NO_AUTO_UPDATE=1 brew outdated --quiet
 assert_check "Outdated mise runtimes" '{}' mise outdated --json
+run_check "Manifest versions" "$REPO_ROOT/scripts/sync-manifest-versions" --check
 run_check "Ghostty config" ghostty +validate-config
 run_check "Codex approval defaults" "$REPO_ROOT/bin/configure-codex" --check
 run_check "Herdr config" herdr config check

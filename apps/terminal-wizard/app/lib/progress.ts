@@ -1,4 +1,5 @@
-export const PROGRESS_STORAGE_KEY = "terminal-wizard.progress.v1";
+export const PROGRESS_STORAGE_KEY = "terminal-wizard.progress.v2";
+const LEGACY_PROGRESS_STORAGE_KEYS = ["terminal-wizard.progress.v1"] as const;
 
 export type Progress = Record<string, string[]>;
 
@@ -10,7 +11,7 @@ export type ProgressStorage = Pick<
 const MAX_LESSONS = 100;
 const MAX_ENTRIES_PER_LESSON = 100;
 const VALID_LESSON_ID = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
-const VALID_PROGRESS_ENTRY = /^(?:__complete__|0|[1-9]\d{0,2})$/;
+const VALID_PROGRESS_ENTRY = /^(?:0|[1-9]\d{0,2})$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -48,6 +49,7 @@ export function persistProgress(
   storage: ProgressStorage,
   progress: Progress,
 ): void {
+  for (const key of LEGACY_PROGRESS_STORAGE_KEYS) storage.removeItem(key);
   storage.setItem(
     PROGRESS_STORAGE_KEY,
     JSON.stringify(normalizeProgress(progress)),
@@ -56,4 +58,5 @@ export function persistProgress(
 
 export function clearProgress(storage: ProgressStorage): void {
   storage.removeItem(PROGRESS_STORAGE_KEY);
+  for (const key of LEGACY_PROGRESS_STORAGE_KEYS) storage.removeItem(key);
 }
