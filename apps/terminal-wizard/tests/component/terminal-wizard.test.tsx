@@ -582,6 +582,28 @@ describe("Terminal Tutor client journey", () => {
     expect(screen.getByTestId("fake-terminal").getAttribute("data-mode")).toBe("practice");
   });
 
+  it("keeps an unspent hosted pairing available after returning to Practice", async () => {
+    liveOrigin.consumeLiveMacAccess.mockReturnValue({ kind: "hosted", pairing: hostedPairing });
+    const user = userEvent.setup();
+    render(<TerminalWizard />);
+    await waitForHydration();
+
+    await user.click(screen.getByRole("button", { name: "Live Mac" }));
+    await user.type(screen.getByLabelText(/Type LIVE/), "LIVE");
+    await user.click(screen.getByRole("button", { name: "Open Live Mac" }));
+    expect(terminal.pairing).toEqual(hostedPairing);
+
+    await user.click(screen.getByRole("button", { name: "Practice" }));
+    expect(screen.getByTestId("fake-terminal").getAttribute("data-mode")).toBe("practice");
+    expect(screen.getByRole("button", { name: "Live Mac" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Live Mac" }));
+    expect((screen.getByLabelText(/Type LIVE/) as HTMLInputElement).value).toBe("");
+    await user.type(screen.getByLabelText(/Type LIVE/), "LIVE");
+    await user.click(screen.getByRole("button", { name: "Open Live Mac" }));
+    expect(terminal.pairing).toEqual(hostedPairing);
+  });
+
   it("explains hosted pairing without probing loopback", async () => {
     liveOrigin.consumeLiveMacAccess.mockReturnValue({ kind: "hosted-unpaired", pairing: null });
     const loopbackFetch = vi.fn();

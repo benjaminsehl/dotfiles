@@ -289,7 +289,7 @@ export function TerminalWizard() {
     if (liveAccess.kind === "hosted") {
       setActivePairing(liveAccess.pairing);
       setLiveAccess({ kind: "hosted-unpaired", pairing: null });
-    } else {
+    } else if (liveAccess.kind === "local") {
       setActivePairing(null);
     }
     setLiveDialogOpen(false);
@@ -300,10 +300,9 @@ export function TerminalWizard() {
 
   const returnToPractice = () => {
     setMode("practice");
-    setActivePairing(null);
   };
 
-  const liveAvailable = liveAccess.kind === "local" || liveAccess.kind === "hosted" || mode === "live";
+  const liveAvailable = liveAccess.kind === "local" || liveAccess.kind === "hosted" || activePairing !== null || mode === "live";
   const pairedFromHostedPage = liveAccess.kind === "hosted" || activePairing !== null;
 
   const lessonEntries = progress[selectedLesson.id] ?? [];
@@ -369,7 +368,7 @@ export function TerminalWizard() {
               : `Practice files: no folder connected${folderNeedsAttention ? ", attention needed" : ""}`;
 
   const openLiveDialog = () => {
-    if (liveAccess.kind === "hosted-unpaired") {
+    if (liveAccess.kind === "hosted-unpaired" && activePairing === null) {
       closeFolderPanel(false);
       closeLessonMenu(false);
       setPairingHelpOpen(true);

@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  LIVE_HEALTH_URL,
   LIVE_SESSION_URL,
+  LiveTicketError,
   parseLiveServerMessage,
+  requestLiveHealth,
   requestLiveTicket,
 } from "../app/lib/live-session.ts";
 
@@ -12,6 +15,44 @@ const pairing = {
   pairingSecret: "b".repeat(43),
 };
 const ticket = `terminal-wizard.${"c".repeat(43)}.${"d".repeat(43)}`;
+
+test("requests and validates the paired companion before spending the capability", async () => {
+  let capturedUrl = "";
+  let capturedInit: RequestInit | undefined;
+  await requestLiveHealth(
+    pairing,
+    new AbortController().signal,
+    (async (url: string | URL | Request, init?: RequestInit) => {
+      capturedUrl = String(url);
+      capturedInit = init;
+      return new Response(JSON.stringify({ ready: true, mode: "hosted", instanceId: pairing.instanceId }));
+    }) as typeof fetch,
+  );
+
+  assert.equal(capturedUrl, LIVE_HEALTH_URL);
+  assert.equal(capturedInit?.method, "GET");
+  assert.equal(capturedInit?.credentials, "omit");
+  assert.equal(capturedInit?.cache, "no-store");
+  assert.equal(capturedInit?.redirect, "error");
+  assert.equal(capturedInit?.referrerPolicy, "no-referrer");
+  assert.equal(capturedInit?.targetAddressSpace, "loopback");
+  assert.equal(capturedInit?.body, undefined);
+});
+
+test("rejects a health response from a different companion", async () => {
+  await assert.rejects(
+    requestLiveHealth(
+      pairing,
+      new AbortController().signal,
+      (async () => new Response(JSON.stringify({
+        ready: true,
+        mode: "hosted",
+        instanceId: "z".repeat(22),
+      }))) as typeof fetch,
+    ),
+    /different Terminal Tutor companion/,
+  );
+});
 
 test("requests a hosted ticket with an exact, credential-free loopback POST", async () => {
   let capturedUrl = "";
@@ -73,6 +114,15 @@ test("fails closed on pairing, busy, unavailable, and malformed responses", asyn
   await assert.rejects(
     requestWith(new Response(JSON.stringify({ protocol: ticket, expiresInMs: 1 }))),
     /invalid session ticket/,
+  );
+
+  await assert.rejects(
+    requestWith(new Response("{}", { status: 410 })),
+    (error: unknown) => error instanceof LiveTicketError && error.pairingFinal,
+  );
+  await assert.rejects(
+    requestWith(new Response("{}", { status: 500 })),
+    (error: unknown) => error instanceof LiveTicketError && !error.pairingFinal,
   );
 });
 

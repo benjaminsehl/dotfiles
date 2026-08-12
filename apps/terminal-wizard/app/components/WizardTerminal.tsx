@@ -17,7 +17,9 @@ import type { LessonCommandResult } from "@/app/lib/lesson-progress";
 import type { HostedPairing } from "@/app/lib/live-origin";
 import {
   LIVE_SOCKET_URL,
+  LiveTicketError,
   parseLiveServerMessage,
+  requestLiveHealth,
   requestLiveTicket,
 } from "@/app/lib/live-session";
 
@@ -157,15 +159,32 @@ export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalPro
       const controller = new AbortController();
       liveAbortRef.current = controller;
       let timedOut = false;
-      const timeout = window.setTimeout(() => {
-        timedOut = true;
-        controller.abort("Live Mac connection timed out");
-      }, 10_000);
+      let timeoutPhase: "permission" | "session" = pairing ? "permission" : "session";
+      let timeout = 0;
+      const armTimeout = (phase: "permission" | "session", durationMs: number) => {
+        window.clearTimeout(timeout);
+        timeoutPhase = phase;
+        timeout = window.setTimeout(() => {
+          timedOut = true;
+          controller.abort(`Live Mac ${phase} timed out`);
+        }, durationMs);
+      };
+      armTimeout(timeoutPhase, pairing ? 120_000 : 10_000);
       setStatus("connecting");
-      setStatusMessage("Requesting a one-time Live Mac ticket…");
+      setStatusMessage(
+        pairing
+          ? "Allow Local Network Access in Chrome to connect to this Mac…"
+          : "Requesting a one-time Live Mac ticket…",
+      );
       try {
-        if (pairing) onPairingConsumedRef.current?.();
+        if (pairing) {
+          await requestLiveHealth(pairing, controller.signal);
+          if (controller.signal.aborted || liveGenerationRef.current !== generation) return;
+          setStatusMessage("Requesting a one-time Live Mac ticket…");
+          armTimeout("session", 10_000);
+        }
         const protocol = await requestLiveTicket(pairing, controller.signal);
+        if (pairing) onPairingConsumedRef.current?.();
         if (controller.signal.aborted || liveGenerationRef.current !== generation) return;
         const socket = new WebSocket(LIVE_SOCKET_URL, protocol);
         if (controller.signal.aborted || liveGenerationRef.current !== generation) {
@@ -226,10 +245,17 @@ export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalPro
         });
       } catch (error) {
         if (liveGenerationRef.current !== generation || (controller.signal.aborted && !timedOut)) return;
+        if (pairing && error instanceof LiveTicketError && error.pairingFinal) {
+          onPairingConsumedRef.current?.();
+        }
         setStatus("error");
         setStatusMessage(
           timedOut
-            ? "The local companion did not respond. Run terminal-wizard --hosted again."
+            ? pairing && timeoutPhase === "permission"
+              ? "Chrome did not grant Local Network Access in time. Return to Practice and try again."
+              : "The local companion did not respond. Run terminal-wizard --hosted again."
+            : pairing && error instanceof TypeError
+              ? "Chrome blocked access to this Mac. Allow Local Network Access, then return to Practice and try again."
             : error instanceof Error
               ? error.message
               : "Could not start Live Mac",
