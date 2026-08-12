@@ -33,6 +33,27 @@ import {
   type WizardTerminalHandle,
 } from "@/app/components/WizardTerminal";
 
+const DIALOG_FOCUSABLE = "button:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])";
+
+function trapDialogFocus(event: KeyboardEvent, dialog: HTMLElement | null) {
+  if (event.key !== "Tab" || !dialog) return;
+  const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE));
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  if (!dialog.contains(active)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  } else if (event.shiftKey && active === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 export function TerminalWizard() {
   const [selectedId, setSelectedId] = useState(lessons[0].id);
   const [progress, setProgress] = useState<Progress>({});
@@ -55,6 +76,9 @@ export function TerminalWizard() {
   const terminalRef = useRef<WizardTerminalHandle>(null);
   const liveInputRef = useRef<HTMLInputElement>(null);
   const liveTriggerRef = useRef<HTMLButtonElement>(null);
+  const liveDialogRef = useRef<HTMLElement>(null);
+  const pairingHelpDialogRef = useRef<HTMLElement>(null);
+  const pairingHelpCloseRef = useRef<HTMLButtonElement>(null);
   const lessonMenuRef = useRef<HTMLElement>(null);
   const lessonTriggerRef = useRef<HTMLButtonElement>(null);
   const folderPanelRef = useRef<HTMLElement>(null);
@@ -133,23 +157,35 @@ export function TerminalWizard() {
   useEffect(() => {
     if (!liveDialogOpen) return;
     const focusFrame = window.requestAnimationFrame(() => liveInputRef.current?.focus());
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeLiveDialog();
+    const handleDialogKeys = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeLiveDialog();
+        return;
+      }
+      trapDialogFocus(event, liveDialogRef.current);
     };
-    window.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("keydown", handleDialogKeys);
     return () => {
       window.cancelAnimationFrame(focusFrame);
-      window.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("keydown", handleDialogKeys);
     };
   }, [closeLiveDialog, liveDialogOpen]);
 
   useEffect(() => {
     if (!pairingHelpOpen) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closePairingHelp();
+    const focusFrame = window.requestAnimationFrame(() => pairingHelpCloseRef.current?.focus());
+    const handleDialogKeys = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closePairingHelp();
+        return;
+      }
+      trapDialogFocus(event, pairingHelpDialogRef.current);
     };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
+    window.addEventListener("keydown", handleDialogKeys);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.removeEventListener("keydown", handleDialogKeys);
+    };
   }, [closePairingHelp, pairingHelpOpen]);
 
   useEffect(() => {
@@ -580,6 +616,10 @@ export function TerminalWizard() {
                 </span>
               </div>
             </div>
+            <div className={`mode-truth ${mode}`}>
+              <span className="mode-truth-copy">Practice models the declared setup; Live verifies this Mac.</span>
+              <strong aria-live="polite">{mode === "practice" ? "Practice model · earns credit" : "Live mode · no course credit"}</strong>
+            </div>
             <p
               className="sr-only"
               role={folderMessageTone === "error" ? "alert" : "status"}
@@ -648,6 +688,11 @@ export function TerminalWizard() {
                   ) : (
                     <div className="folder-empty">
                       <p>Choose a narrow project folder, never your home folder.</p>
+                      {progressHydrated && !pickerSupported ? (
+                        <p className="folder-recovery" role="status">
+                          Folder snapshots require Chrome’s File System Access API. Open this page in an up-to-date desktop Chrome window and reload. If you’re already in Chrome, restart or update Chrome, or try a standard profile where the API is enabled.
+                        </p>
+                      ) : null}
                       <button className="folder-action primary" type="button" onClick={() => void chooseFolder()} disabled={!pickerSupported || folderBusy}>
                         {folderBusy ? "Reading safe files…" : pickerSupported ? "Choose project folder" : "Folder access unavailable"}
                       </button>
@@ -709,7 +754,7 @@ export function TerminalWizard() {
 
       {liveDialogOpen ? (
         <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && closeLiveDialog()}>
-          <section className="live-dialog" role="dialog" aria-modal="true" aria-labelledby="live-dialog-title">
+          <section ref={liveDialogRef} className="live-dialog" role="dialog" aria-modal="true" aria-labelledby="live-dialog-title">
             <button className="dialog-close" onClick={closeLiveDialog} aria-label="Close Live Mac warning">×</button>
             <span className="danger-orbit" aria-hidden="true">●</span>
             <p className="eyebrow">Power with a boundary</p>
@@ -720,6 +765,7 @@ export function TerminalWizard() {
             <ul>
               <li>Bound to 127.0.0.1 only</li>
               {pairedFromHostedPage ? <li>Terminal traffic stays between this browser and your Mac; Vercel never receives it</li> : null}
+              {pairedFromHostedPage ? <li>Chrome will ask for Local Network Access after you continue; choose Allow in the address-bar prompt</li> : null}
               <li>One browser session and one-time 30-second ticket</li>
               <li>No automatic command execution from lessons</li>
               <li>Closes after 20 minutes without keyboard activity</li>
@@ -743,8 +789,8 @@ export function TerminalWizard() {
 
       {pairingHelpOpen ? (
         <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && closePairingHelp()}>
-          <section className="live-dialog pairing-dialog" role="dialog" aria-modal="true" aria-labelledby="pairing-dialog-title">
-            <button className="dialog-close" onClick={closePairingHelp} aria-label="Close Live Mac pairing instructions">×</button>
+          <section ref={pairingHelpDialogRef} className="live-dialog pairing-dialog" role="dialog" aria-modal="true" aria-labelledby="pairing-dialog-title">
+            <button ref={pairingHelpCloseRef} className="dialog-close" onClick={closePairingHelp} aria-label="Close Live Mac pairing instructions">×</button>
             <span className="danger-orbit pairing-orbit" aria-hidden="true">↯</span>
             <p className="eyebrow">Vercel UI · local shell</p>
             <h2 id="pairing-dialog-title">Pair this Mac first.</h2>

@@ -12,6 +12,7 @@ sources=(
   config/ghostty/config.ghostty
   config/herdr/config.toml
   config/mise/config.toml
+  config/mise/mise.lock
   config/starship/starship.toml
   config/git/gitconfig
   apply
@@ -30,6 +31,7 @@ targets=(
   .config/ghostty/config.ghostty
   .config/herdr/config.toml
   .config/mise/config.toml
+  .config/mise/mise.lock
   .config/starship.toml
   .gitconfig
   .local/bin/apply

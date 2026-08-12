@@ -71,6 +71,40 @@ version_check() {
   fi
 }
 
+# Called indirectly through run_check.
+# shellcheck disable=SC2329
+omp_owner_check() {
+  local shim expected_shim installed
+  expected_shim="$HOME/.local/share/mise/shims/omp"
+  shim=$(command -v omp 2>/dev/null || true)
+  installed=$(mise which omp 2>/dev/null || true)
+
+  if [[ $shim != "$expected_shim" ]]; then
+    printf 'expected OMP command %s, got %s\n' "$expected_shim" "${shim:-unavailable}" >&2
+    return 1
+  fi
+
+  case "$installed" in
+    "$HOME/.local/share/mise/installs/github-can1357-oh-my-pi/"*/omp)
+      printf 'shim: %s\ninstall: %s\n' "$shim" "$installed"
+      ;;
+    *)
+      printf 'expected a mise GitHub-backend OMP install, got %s\n' "${installed:-unavailable}" >&2
+      return 1
+      ;;
+  esac
+}
+
+# Called indirectly through run_check.
+# shellcheck disable=SC2329
+omp_dual_install_check() {
+  if brew list --formula omp >/dev/null 2>&1 || brew list --formula can1357/tap/omp >/dev/null 2>&1; then
+    printf 'Homebrew OMP is still installed; remove it after confirming the mise-managed command works.\n' >&2
+    return 1
+  fi
+  printf 'none\n'
+}
+
 run_check "Homebrew" brew doctor
 run_check "Brewfile" brew bundle check --file "$REPO_ROOT/Brewfile"
 run_check "Dotfile links" "$REPO_ROOT/scripts/check-links"
@@ -80,6 +114,9 @@ run_check "Manifest versions" "$REPO_ROOT/scripts/sync-manifest-versions" --chec
 run_check "Ghostty config" ghostty +validate-config
 run_check "Codex approval defaults" "$REPO_ROOT/bin/configure-codex" --check
 run_check "Herdr config" herdr config check
+run_check "OMP command owner" omp_owner_check
+run_check "Duplicate OMP installations" omp_dual_install_check
+run_check "OMP completion cache" "$REPO_ROOT/scripts/sync-omp-completion" --check
 assert_check "OMP approval mode" write omp config get tools.approvalMode
 assert_check "OMP secret protection" true omp config get secrets.enabled
 run_check "Herdr OMP integration" bash -c 'herdr integration status | grep "omp: current"'

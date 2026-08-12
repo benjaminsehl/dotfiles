@@ -214,6 +214,33 @@ describe("Terminal Tutor client journey", () => {
     expect(screen.getByRole("main")).toBeTruthy();
   });
 
+  it("explains the Practice model and changes the credit badge in Live mode", async () => {
+    const user = userEvent.setup();
+    render(<TerminalWizard />);
+    await waitForHydration();
+
+    expect(screen.getByText("Practice models the declared setup; Live verifies this Mac.")).toBeTruthy();
+    expect(screen.getByText("Practice model · earns credit")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Live Mac" }));
+    await user.type(screen.getByLabelText(/Type LIVE/), "LIVE");
+    await user.click(screen.getByRole("button", { name: "Open Live Mac" }));
+
+    expect(screen.getByText("Live mode · no course credit")).toBeTruthy();
+  });
+
+  it("gives Chrome recovery guidance when File System Access is unavailable", async () => {
+    fileSystem.supportsFileSystemAccess.mockReturnValue(false);
+    const user = userEvent.setup();
+    render(<TerminalWizard />);
+    await waitForHydration();
+
+    const { dialog } = await openFolderDialog(user);
+    expect(within(dialog).getByText(/require Chrome’s File System Access API/)).toBeTruthy();
+    expect(within(dialog).getByText(/restart or update Chrome/)).toBeTruthy();
+    expect((within(dialog).getByRole("button", { name: "Folder access unavailable" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("does not let a late restore overwrite a newer folder choice", async () => {
     const restore = deferred<Snapshot | null>();
     fileSystem.restoreFolder.mockReturnValue(restore.promise);
@@ -531,6 +558,31 @@ describe("Terminal Tutor client journey", () => {
     expect(screen.getByTestId("fake-terminal").getAttribute("data-instance")).not.toBe(firstInstance);
   });
 
+  it("traps Tab focus in the Live warning and restores the Live trigger on Escape", async () => {
+    const user = userEvent.setup();
+    render(<TerminalWizard />);
+    await waitForHydration();
+
+    const live = screen.getByRole("button", { name: "Live Mac" });
+    await user.click(live);
+    const dialog = screen.getByRole("dialog", { name: "Live Mac can change your computer." });
+    const close = within(dialog).getByRole("button", { name: "Close Live Mac warning" });
+    const input = within(dialog).getByLabelText(/Type LIVE/);
+    const stay = within(dialog).getByRole("button", { name: "Stay in Practice" });
+    await waitFor(() => expect(document.activeElement).toBe(input));
+
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(close);
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(stay);
+    await user.tab();
+    expect(document.activeElement).toBe(close);
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Live Mac can change your computer." })).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(live));
+  });
+
   it("keeps a hosted pairing inert and requires fresh consent again after cancel", async () => {
     liveOrigin.consumeLiveMacAccess.mockReturnValue({ kind: "hosted", pairing: hostedPairing });
     const loopbackFetch = vi.fn();
@@ -543,6 +595,7 @@ describe("Terminal Tutor client journey", () => {
     expect(screen.getByTestId("fake-terminal").getAttribute("data-mode")).toBe("practice");
     await user.click(screen.getByRole("button", { name: "Live Mac" }));
     expect(screen.getByText(/Terminal traffic stays between this browser and your Mac/)).toBeTruthy();
+    expect(screen.getByText(/Chrome will ask for Local Network Access/)).toBeTruthy();
     await user.type(screen.getByLabelText(/Type LIVE/), "LIVE");
     await user.click(screen.getByRole("button", { name: "Stay in Practice" }));
 
@@ -618,12 +671,19 @@ describe("Terminal Tutor client journey", () => {
     expect(screen.getByTestId("fake-terminal").getAttribute("data-mode")).toBe("practice");
     await user.click(live);
     const dialog = screen.getByRole("dialog", { name: "Pair this Mac first." });
+    const close = within(dialog).getByRole("button", { name: "Close Live Mac pairing instructions" });
+    const back = within(dialog).getByRole("button", { name: "Back to Practice" });
+    await waitFor(() => expect(document.activeElement).toBe(close));
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(back);
+    await user.tab();
+    expect(document.activeElement).toBe(close);
     expect(within(dialog).getByText("terminal-wizard --hosted")).toBeTruthy();
     expect(within(dialog).getByText(/Vercel never receives/)).toBeTruthy();
     expect(loopbackFetch).not.toHaveBeenCalled();
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("dialog", { name: "Pair this Mac first." })).toBeNull();
-    expect(document.activeElement).toBe(live);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Pair this Mac first." })).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(live));
   });
 
   it("inserts without credit and records only a successful terminal result", async () => {

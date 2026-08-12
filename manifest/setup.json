@@ -18,7 +18,7 @@
     {"id":"zsh","name":"Zsh","command":"zsh","version":"system","category":"shell","purpose":"The command interpreter and interactive shell"},
     {"id":"starship","name":"Starship","command":"starship","version":"1.26.0","category":"shell","purpose":"Fast, minimal prompt with Git context"},
     {"id":"herdr","name":"Herdr","command":"herdr","version":"0.8.0","category":"workspace","purpose":"Persistent panes and agent sessions"},
-    {"id":"omp","name":"Oh My Pi","command":"omp","version":"17.2.14","category":"agent","purpose":"Coding agent that auto-approves reads and workspace writes while preserving higher-impact approval boundaries"},
+    {"id":"omp","name":"Oh My Pi","command":"omp","version":"17.2.15","category":"agent","purpose":"Coding agent that auto-approves reads and workspace writes while preserving higher-impact approval boundaries"},
     {"id":"codex","name":"Codex CLI","command":"codex","version":"0.147.0","category":"agent","purpose":"OpenAI coding agent with on-request approvals delegated to the automatic reviewer"},
     {"id":"git","name":"Git","command":"git","version":"2.55.0","category":"source-control","purpose":"Version control"},
     {"id":"gh","name":"GitHub CLI","command":"gh","version":"2.97.0","category":"source-control","purpose":"GitHub repositories, issues, pull requests, and authentication"},

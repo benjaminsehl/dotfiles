@@ -61,11 +61,15 @@ fi
 
 cd "$HOME"
 mise use -g --pin node@lts bun@latest go@latest python@latest npm:pnpm@latest npm:@openai/codex@latest
+mise upgrade github:can1357/oh-my-pi --bump --minimum-release-age 0s
+mise lock --global --platform macos-x64,macos-arm64
 mise reshim
+"$REPO_ROOT/scripts/sync-omp-completion" --write
+herdr integration install omp
 "$REPO_ROOT/scripts/sync-manifest-versions" --write
 
-if ! git -C "$REPO_ROOT" diff --quiet -- config/mise/config.toml manifest/setup.json 2>/dev/null; then
-  printf '\nVersion declarations changed. Review and commit config/mise/config.toml and manifest/setup.json.\n'
+if ! git -C "$REPO_ROOT" diff --quiet -- config/mise/config.toml config/mise/mise.lock manifest/setup.json 2>/dev/null; then
+  printf '\nVersion declarations changed. Review and commit config/mise/config.toml, config/mise/mise.lock, and manifest/setup.json.\n'
 fi
 
 printf '\nDeveloper tools are current. Run dev-doctor for a health report.\n'

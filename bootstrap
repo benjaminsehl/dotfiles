@@ -141,6 +141,7 @@ link_file() {
       say "would back up $target_path to $backup_path"
     else
       mkdir -p "$(dirname "$backup_path")"
+      find -P "$BACKUP_ROOT" -type d -exec chmod 700 {} +
       mv "$target_path" "$backup_path"
       secure_backup_path "$backup_path"
     fi
@@ -165,6 +166,7 @@ sources=(
   "$REPO_ROOT/config/ghostty/config.ghostty"
   "$REPO_ROOT/config/herdr/config.toml"
   "$REPO_ROOT/config/mise/config.toml"
+  "$REPO_ROOT/config/mise/mise.lock"
   "$REPO_ROOT/config/starship/starship.toml"
   "$REPO_ROOT/config/git/gitconfig"
   "$REPO_ROOT/apply"
@@ -183,6 +185,7 @@ targets=(
   "$TARGET_HOME/.config/ghostty/config.ghostty"
   "$TARGET_HOME/.config/herdr/config.toml"
   "$TARGET_HOME/.config/mise/config.toml"
+  "$TARGET_HOME/.config/mise/mise.lock"
   "$TARGET_HOME/.config/starship.toml"
   "$TARGET_HOME/.gitconfig"
   "$TARGET_HOME/.local/bin/apply"
@@ -238,6 +241,12 @@ if ((SKIP_POSTINSTALL == 0)) && [[ $TARGET_HOME == "$HOME" ]] && ((DRY_RUN == 0)
   source "$TARGET_HOME/.profile"
   mise install
   mise reshim
+  # A blank home has no mise shim directory when the profile is first sourced.
+  # Source it again after reshim so this process immediately uses the installs
+  # it just created rather than falling through to another package manager.
+  # shellcheck disable=SC1091
+  source "$TARGET_HOME/.profile"
+  "$REPO_ROOT/scripts/sync-omp-completion" --write
   git lfs install --skip-repo
   omp config set tools.approvalMode write
   omp config set secrets.enabled true

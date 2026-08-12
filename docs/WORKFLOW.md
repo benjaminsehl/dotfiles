@@ -11,8 +11,9 @@ used `/usr/bin/apply` utility. The system utility remains available by its full
 path.
 
 It installs missing declared packages, restores explicit configuration links,
-installs pinned runtimes, and reapplies the OMP/Codex Herdr integrations. It does
-not pull Git changes or upgrade every package implicitly.
+installs pinned runtimes and OMP, refreshes OMP's generated completion cache,
+and reapplies the OMP/Codex Herdr integrations. It does not pull Git changes or
+upgrade every package implicitly.
 
 ## Apply modes
 
@@ -35,6 +36,28 @@ apply
 Keeping the pull explicit makes remote code reviewable before it can change the
 machine. Updating runtime pins intentionally leaves a Git diff so the new
 versions can be tested and committed.
+
+## OMP ownership and updates
+
+OMP is installed by mise from the official `can1357/oh-my-pi` GitHub release,
+not by Homebrew. `config/mise/config.toml` pins the version and
+`config/mise/mise.lock` pins the Intel and Apple Silicon download URLs and
+SHA-256 checksums. OMP is exempt from the general seven-day release-age gate so
+an intentionally reviewed security or compatibility update can be adopted
+immediately; the version and lockfile remain exact and reviewable.
+
+Zsh reads OMP completion data from
+`~/.cache/zsh/site-functions/_omp`. The shell never invokes OMP to generate it:
+bootstrap and `dev-update` refresh the file atomically, while `dev-doctor`
+compares the cache with the active mise-managed executable. Credentials,
+sessions, plugins, and agent state remain under `~/.omp` and are never moved or
+tracked during an OMP binary migration.
+
+On a Mac that previously installed OMP with Homebrew, apply the repository,
+confirm `command -v omp` is the mise shim and `omp --version` is the declared
+version, and only then remove the old Homebrew formula. `dev-doctor` reports a
+duplicate installation until that one-time cleanup is complete; it never
+removes either copy itself.
 
 ## Fast shell vocabulary
 

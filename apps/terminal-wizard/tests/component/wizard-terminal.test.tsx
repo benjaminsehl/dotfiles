@@ -127,7 +127,7 @@ describe("hosted Live Mac permission and pairing lifecycle", () => {
     fireEvent.click(start);
 
     expect(await screen.findByText(
-      "Chrome blocked access to this Mac. Allow Local Network Access, then return to Practice and try again.",
+      "Chrome blocked access to this Mac. In Chrome site controls, allow Local Network Access for Terminal Tutor, then return to Practice and try again.",
     )).toBeTruthy();
     expect(onPairingConsumed).not.toHaveBeenCalled();
   });
@@ -169,7 +169,7 @@ describe("hosted Live Mac permission and pairing lifecycle", () => {
       await Promise.resolve();
     });
     expect(screen.getByText(
-      "Chrome did not grant Local Network Access in time. Return to Practice and try again.",
+      "Chrome did not grant Local Network Access in time. In Chrome site controls, allow Local Network Access for Terminal Tutor, then return to Practice and try again.",
     )).toBeTruthy();
     expect(onPairingConsumed).not.toHaveBeenCalled();
   });

@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: scripts/sync-omp-completion --check|--write
+
+Generate or verify the cached Zsh completion for the active OMP executable.
+The cache lives outside the repository at ~/.cache/zsh/site-functions/_omp.
+USAGE
+}
+
+mode=${1:-}
+if [[ $# != 1 ]] || [[ $mode != --check && $mode != --write ]]; then
+  usage >&2
+  exit 2
+fi
+
+if ! command -v omp >/dev/null 2>&1; then
+  printf 'OMP is unavailable; run mise install and mise reshim first.\n' >&2
+  exit 1
+fi
+
+cache_root="$HOME/.cache"
+completion_dir="$cache_root/zsh/site-functions"
+completion_file="$completion_dir/_omp"
+umask 077
+
+temp_root=$(mktemp -d "${TMPDIR:-/tmp}/omp-completion.XXXXXX")
+generated="$temp_root/_omp"
+cleanup() {
+  rm -f -- "$generated"
+  rmdir "$temp_root" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+omp completions zsh > "$generated"
+IFS= read -r first_line < "$generated" || true
+if [[ $first_line != '#compdef omp' ]]; then
+  printf 'OMP returned an invalid Zsh completion; refusing to cache it.\n' >&2
+  exit 1
+fi
+
+if [[ $mode == --check ]]; then
+  if [[ ! -f $completion_file ]]; then
+    printf 'OMP completion cache is missing: %s\n' "$completion_file" >&2
+    exit 1
+  fi
+  if ! cmp -s "$generated" "$completion_file"; then
+    printf 'OMP completion cache is stale: %s\n' "$completion_file" >&2
+    diff -u "$completion_file" "$generated" || true
+    exit 1
+  fi
+  if [[ $(stat -f '%Lp' "$completion_dir") != 700 ]] || [[ $(stat -f '%Lp' "$completion_file") != 600 ]]; then
+    printf 'OMP completion cache permissions are unsafe: %s\n' "$completion_file" >&2
+    exit 1
+  fi
+  printf 'OMP completion cache is current: %s\n' "$completion_file"
+  exit 0
+fi
+
+install -d -m 700 "$completion_dir"
+chmod 700 "$completion_dir"
+staged=$(mktemp "$completion_dir/.omp.XXXXXX")
+trap 'rm -f -- "$generated" "${staged:-}"; rmdir "$temp_root" 2>/dev/null || true' EXIT
+install -m 600 "$generated" "$staged"
+
+if [[ -f $completion_file ]] && cmp -s "$staged" "$completion_file" && [[ $(stat -f '%Lp' "$completion_file") == 600 ]]; then
+  rm -f -- "$staged"
+  printf 'OMP completion cache is already current: %s\n' "$completion_file"
+else
+  mv -f "$staged" "$completion_file"
+  printf 'Updated OMP completion cache: %s\n' "$completion_file"
+fi

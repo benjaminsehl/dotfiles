@@ -252,10 +252,10 @@ export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalPro
         setStatusMessage(
           timedOut
             ? pairing && timeoutPhase === "permission"
-              ? "Chrome did not grant Local Network Access in time. Return to Practice and try again."
+              ? "Chrome did not grant Local Network Access in time. In Chrome site controls, allow Local Network Access for Terminal Tutor, then return to Practice and try again."
               : "The local companion did not respond. Run terminal-wizard --hosted again."
             : pairing && error instanceof TypeError
-              ? "Chrome blocked access to this Mac. Allow Local Network Access, then return to Practice and try again."
+              ? "Chrome blocked access to this Mac. In Chrome site controls, allow Local Network Access for Terminal Tutor, then return to Practice and try again."
             : error instanceof Error
               ? error.message
               : "Could not start Live Mac",

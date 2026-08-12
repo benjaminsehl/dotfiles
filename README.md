@@ -4,7 +4,7 @@ A small, deliberate macOS development environment:
 
 ```text
 Ghostty → zsh + Starship → Herdr → OMP / Codex
-                    └── mise → Node, pnpm, Bun, Go, Python
+                    └── mise → OMP, Codex, Node, pnpm, Bun, Go, Python
 ```
 
 The repository is the source of truth for shell behavior, applications,
@@ -44,7 +44,7 @@ choose **Set Ghostty as Default Terminal App**.
 - `dev-doctor` checks Brewfile drift, symlinks, runtimes, Ghostty, Herdr, OMP/Codex safety and integrations, authentication, and sensitive file modes.
 - `configure-codex` safely applies Codex's on-request, auto-reviewed approval defaults without replacing the rest of its machine-local configuration.
 - `terminal-wizard --hosted` opens the deployed course with a one-time, loopback-only Live Mac companion; `terminal-wizard` keeps the production-local path, `--dev` enables hot reload, and `--check` runs the complete release gate.
-- `dev-update` updates the declared Homebrew set, refreshes exact mise pins, and synchronizes the teaching manifest from live command versions. Declaration changes make the repository dirty on purpose so they can be reviewed and committed.
+- `dev-update` updates the declared Homebrew set, refreshes exact mise pins and the full mise lock plus OMP's completion cache, and synchronizes the teaching manifest from live command versions. Declaration changes make the repository dirty on purpose so they can be reviewed and committed.
 - `scripts/test` runs static checks, a secret scan, and a two-pass bootstrap test in an isolated temporary home.
 
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the fast shell vocabulary and the
@@ -85,8 +85,8 @@ file.
 ## Provenance
 
 The explicit PATH, `apply` reconciliation model, pinned mise workflow,
-seven-day release gate, conditional tool ergonomics, fzf previews, and local
-override approach are adapted from
+seven-day release gate (with an explicit zero-day OMP exception), conditional
+tool ergonomics, fzf previews, and local override approach are adapted from
 [Tobi Lütke's dotfiles at the audited revision](https://github.com/tobi/dotfiles/tree/c1a2d9fc0d6248bd6549c99c387b8c6dcc984c3a). The implementation is
 Mac-specific, secret-safe, does not pull automatically, and avoids first-run
 network surprises in zsh.

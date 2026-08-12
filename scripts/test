@@ -4,11 +4,58 @@ set -euo pipefail
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$REPO_ROOT"
 
-bash -n apply bootstrap bin/configure-codex bin/dev-update bin/dev-doctor bin/terminal-wizard scripts/check-links scripts/check-manifest scripts/check-modes scripts/sync-manifest-versions
+bash -n apply bootstrap bin/configure-codex bin/dev-update bin/dev-doctor bin/terminal-wizard scripts/check-links scripts/check-manifest scripts/check-modes scripts/sync-manifest-versions scripts/sync-omp-completion
 zsh -n config/shell/profile config/shell/zprofile config/shell/zshrc config/shell/zlogin
 
 if command -v shellcheck >/dev/null 2>&1; then
-  shellcheck apply bootstrap bin/configure-codex bin/dev-update bin/dev-doctor bin/terminal-wizard scripts/check-links scripts/check-manifest scripts/check-modes scripts/sync-manifest-versions
+  shellcheck apply bootstrap bin/configure-codex bin/dev-update bin/dev-doctor bin/terminal-wizard scripts/check-links scripts/check-manifest scripts/check-modes scripts/sync-manifest-versions scripts/sync-omp-completion
+fi
+
+if rg -n 'can1357/tap|brew "(?:can1357/tap/)?omp"' Brewfile; then
+  printf 'OMP must be owned by mise, not Homebrew.\n' >&2
+  exit 1
+fi
+grep -Fq 'lockfile = true' config/mise/config.toml
+grep -Fq 'lockfile_platforms = ["macos-x64", "macos-arm64"]' config/mise/config.toml
+grep -Fq '"github:can1357/oh-my-pi" = { version = "17.2.15", bin = "omp", minimum_release_age = "0s" }' config/mise/config.toml
+grep -Fq 'checksum = "sha256:e280d25bc7ad889c87af101a8b9c8b7aa9853c373acb259eda6007a9659ac2a5"' config/mise/mise.lock
+grep -Fq 'url = "https://github.com/can1357/oh-my-pi/releases/download/v17.2.15/omp-darwin-arm64"' config/mise/mise.lock
+grep -Fq 'checksum = "sha256:019281f10e416bc19716c29fc8928b7278573c7a011bcaf22d15dfd39b045d03"' config/mise/mise.lock
+grep -Fq 'url = "https://github.com/can1357/oh-my-pi/releases/download/v17.2.15/omp-darwin-x64"' config/mise/mise.lock
+grep -Fq 'scripts/sync-omp-completion" --write' bootstrap bin/dev-update
+grep -Fq 'scripts/sync-omp-completion" --check' bin/dev-doctor
+grep -Fq 'mise upgrade github:can1357/oh-my-pi --bump --minimum-release-age 0s' bin/dev-update
+grep -Fq 'herdr integration install omp' bin/dev-update
+grep -Fq 'brew list --formula omp' bin/dev-doctor
+grep -Fq 'github-can1357-oh-my-pi/' bin/dev-doctor
+grep -Fq '[[tools.bun]]' config/mise/mise.lock
+grep -Fq '[[tools.go]]' config/mise/mise.lock
+grep -Fq '[[tools.node]]' config/mise/mise.lock
+grep -Fq '[[tools."npm:@openai/codex"]]' config/mise/mise.lock
+grep -Fq '[[tools."npm:pnpm"]]' config/mise/mise.lock
+grep -Fq '[[tools.python]]' config/mise/mise.lock
+# OMP must advance its pin before the derived lock, shim, completion, Herdr,
+# and teaching-manifest state is refreshed.
+omp_upgrade_line=$(grep -nF 'mise upgrade github:can1357/oh-my-pi --bump --minimum-release-age 0s' bin/dev-update | cut -d: -f1)
+omp_lock_line=$(grep -nFx 'mise lock --global --platform macos-x64,macos-arm64' bin/dev-update | cut -d: -f1)
+omp_reshim_line=$(grep -nF 'mise reshim' bin/dev-update | tail -1 | cut -d: -f1)
+omp_completion_line=$(grep -nF 'scripts/sync-omp-completion" --write' bin/dev-update | cut -d: -f1)
+omp_herdr_line=$(grep -nF 'herdr integration install omp' bin/dev-update | cut -d: -f1)
+manifest_sync_line=$(grep -nF 'scripts/sync-manifest-versions" --write' bin/dev-update | cut -d: -f1)
+[[ $omp_upgrade_line -lt $omp_lock_line ]]
+[[ $omp_lock_line -lt $omp_reshim_line ]]
+[[ $omp_reshim_line -lt $omp_completion_line ]]
+[[ $omp_completion_line -lt $omp_herdr_line ]]
+[[ $omp_herdr_line -lt $manifest_sync_line ]]
+# These are literal Zsh source lines; the variables must not expand here.
+# shellcheck disable=SC2016
+omp_fpath_line=$(grep -nF 'fpath=("$omp_completion_dir" $fpath)' config/shell/zshrc | cut -d: -f1)
+# shellcheck disable=SC2016
+brew_fpath_line=$(grep -nF 'fpath=("$HOMEBREW_PREFIX/share/zsh/site-functions" $fpath)' config/shell/zshrc | cut -d: -f1)
+[[ $omp_fpath_line -gt $brew_fpath_line ]]
+if rg -n 'omp completions' config/shell/zshrc; then
+  printf 'Zsh startup must not generate OMP completions.\n' >&2
+  exit 1
 fi
 
 launcher_help=$(bin/terminal-wizard --help)
@@ -36,6 +83,33 @@ cleanup() {
   esac
 }
 trap cleanup EXIT
+
+completion_home="$temp_home/completion-home"
+completion_bin="$completion_home/bin"
+mkdir -p "$completion_bin"
+cat > "$completion_bin/omp" <<'SH'
+#!/bin/sh
+if [ "$1 ${2:-}" = "completions zsh" ]; then
+  printf '#compdef omp\n# generated completion fixture\n'
+  exit 0
+fi
+exit 1
+SH
+chmod 755 "$completion_bin/omp"
+HOME="$completion_home" PATH="$completion_bin:/usr/bin:/bin" scripts/sync-omp-completion --write
+HOME="$completion_home" PATH="$completion_bin:/usr/bin:/bin" scripts/sync-omp-completion --check
+completion_file="$completion_home/.cache/zsh/site-functions/_omp"
+grep -Fxq '#compdef omp' "$completion_file"
+[[ $(stat -f '%Lp' "$completion_home/.cache/zsh/site-functions") == 700 ]]
+[[ $(stat -f '%Lp' "$completion_file") == 600 ]]
+[[ -z $(find "$completion_home/.cache/zsh/site-functions" -name '.omp.*' -print -quit) ]]
+chmod 644 "$completion_file"
+if HOME="$completion_home" PATH="$completion_bin:/usr/bin:/bin" scripts/sync-omp-completion --check >/dev/null 2>&1; then
+  printf 'OMP completion check accepted unsafe permissions.\n' >&2
+  exit 1
+fi
+HOME="$completion_home" PATH="$completion_bin:/usr/bin:/bin" scripts/sync-omp-completion --write
+[[ $(stat -f '%Lp' "$completion_file") == 600 ]]
 
 printf 'legacy config\n' > "$temp_home/.zshrc"
 mkdir -p "$temp_home/.local/bin"
@@ -76,6 +150,9 @@ executable_backup=$(find "$temp_home/.config/dotfiles-backups" -path '*/.local/b
 [[ $(stat -f '%Lp' "$general_backup_run") == 700 ]]
 [[ $(stat -f '%Lp' "$general_backup_file") == 600 ]]
 [[ $(stat -f '%Lp' "$executable_backup") == 700 ]]
+while IFS= read -r backup_dir; do
+  [[ $(stat -f '%Lp' "$backup_dir") == 700 ]]
+done < <(find -P "$temp_home/.config/dotfiles-backups" -type d)
 
 corrupt_home="$temp_home/corrupt-marker"
 mkdir -p "$corrupt_home/.codex"
@@ -97,25 +174,45 @@ after_corrupt=$(shasum -a 256 "$corrupt_home/.codex/config.toml")
 
 postinstall_home="$temp_home/postinstall-home"
 mkdir -p "$postinstall_home/.local/bin"
-for fake_command in mise git omp herdr; do
+for fake_command in git herdr; do
   cat > "$postinstall_home/.local/bin/$fake_command" <<'SH'
 #!/bin/sh
 printf '%s %s\n' "${0##*/}" "$*" >> "$HOME/postinstall.log"
 SH
   chmod 755 "$postinstall_home/.local/bin/$fake_command"
 done
+cat > "$postinstall_home/.local/bin/mise" <<'SH'
+#!/bin/sh
+printf '%s %s\n' "${0##*/}" "$*" >> "$HOME/postinstall.log"
+if [ "$1" = "reshim" ]; then
+  mkdir -p "$HOME/.local/share/mise/shims"
+  cat > "$HOME/.local/share/mise/shims/omp" <<'OMP'
+#!/bin/sh
+printf '%s %s\n' "${0##*/}" "$*" >> "$HOME/postinstall.log"
+if [ "$1 ${2:-}" = "completions zsh" ]; then
+  printf '#compdef omp\n# generated completion fixture\n'
+fi
+OMP
+  chmod 755 "$HOME/.local/share/mise/shims/omp"
+fi
+SH
+chmod 755 "$postinstall_home/.local/bin/mise"
 HOME="$postinstall_home" ./bootstrap \
   --target-home "$postinstall_home" \
   --skip-packages \
   --yes
 grep -Fxq 'mise install' "$postinstall_home/postinstall.log"
 grep -Fxq 'mise reshim' "$postinstall_home/postinstall.log"
+grep -Fxq 'omp completions zsh' "$postinstall_home/postinstall.log"
 grep -Fxq 'git lfs install --skip-repo' "$postinstall_home/postinstall.log"
 grep -Fxq 'omp config set tools.approvalMode write' "$postinstall_home/postinstall.log"
 grep -Fxq 'omp config set secrets.enabled true' "$postinstall_home/postinstall.log"
 grep -Fxq 'herdr integration install omp' "$postinstall_home/postinstall.log"
 grep -Fxq 'herdr integration install codex' "$postinstall_home/postinstall.log"
+[[ ! -e $postinstall_home/.local/bin/omp ]]
+[[ $(HOME="$postinstall_home" PATH="$postinstall_home/.local/share/mise/shims:/usr/bin:/bin" command -v omp) == "$postinstall_home/.local/share/mise/shims/omp" ]]
 [[ $(stat -f '%Lp' "$postinstall_home/.omp") == 700 ]]
 [[ $(stat -f '%Lp' "$postinstall_home/.omp/agent") == 700 ]]
+[[ $(stat -f '%Lp' "$postinstall_home/.cache/zsh/site-functions/_omp") == 600 ]]
 
 printf 'dotfiles tests: ok\n'

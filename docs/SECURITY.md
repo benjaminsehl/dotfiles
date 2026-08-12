@@ -11,9 +11,12 @@ never adopts configuration recursively.
 - shell history, application history, backups, caches, or licensed font files
 - `.gitconfig.local` and `.zshrc.local`
 
-OMP's safe values are generated through its CLI during bootstrap instead of
-copying its configuration tree. Herdr's OMP extension is generated the same
-way. Git identity remains in a mode-600 local include.
+OMP's safe values and completion cache are generated through its CLI during
+bootstrap instead of copying its configuration tree. The trusted generated
+completion is shell code for OMP's command metadata; it contains no copied
+credentials, lives untracked under `~/.cache`, and is written atomically with
+mode 600. Herdr's OMP extension is generated the same way. Git identity remains
+in a mode-600 local include.
 
 Codex is managed with the same narrow approach. The repository never copies or
 tracks `~/.codex`; `configure-codex` owns only the top-level approval policy and
