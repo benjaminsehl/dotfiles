@@ -18,18 +18,21 @@ Usage: terminal-wizard [option]
 
 Run the local, interactive course for this workstation.
 
-  --production   Build, then run the production-local server
+  --dev          Run the development server with hot reload
+  --production   Explicitly build and run the production-local server
   --check        Run the complete Terminal Wizard verification suite
   --help         Show this help
 
-With no option, starts the development server at http://127.0.0.1:4317.
+With no option, builds and starts the production-local server at
+http://127.0.0.1:4317.
 Dependencies are installed from package-lock.json only when its checksum changes.
 USAGE
 }
 
-mode=development
+mode=production
 case ${1:-} in
   "") ;;
+  --dev) mode=development ;;
   --production) mode=production ;;
   --check) mode=check ;;
   --help) usage; exit 0 ;;

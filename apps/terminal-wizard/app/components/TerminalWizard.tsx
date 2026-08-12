@@ -128,19 +128,21 @@ export function TerminalWizard() {
   }, []);
 
   const chooseFolder = async () => {
-    const folderOperation = folderOperationRef.current + 1;
-    folderOperationRef.current = folderOperation;
+    const restoreOperation = folderOperationRef.current;
+    let folderOperation = restoreOperation;
     setFolderMessage("");
     const pending = connectFolder();
     setFolderBusy(true);
     try {
       const snapshot = await pending;
-      if (folderOperationRef.current !== folderOperation) return;
+      if (folderOperationRef.current !== restoreOperation) return;
+      folderOperation = restoreOperation + 1;
+      folderOperationRef.current = folderOperation;
       setFolder(snapshot);
       setFolderRevision((revision) => revision + 1);
       setMode("practice");
     } catch (error) {
-      if (folderOperationRef.current !== folderOperation) return;
+      if (folderOperationRef.current !== restoreOperation) return;
       if (error instanceof DOMException && error.name === "AbortError") return;
       setFolderMessage(error instanceof Error ? error.message : "That folder could not be connected.");
     } finally {

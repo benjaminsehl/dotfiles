@@ -163,6 +163,44 @@ describe("Terminal Wizard client journey", () => {
     expect(screen.getByText(/new-project/)).toBeTruthy();
   });
 
+  it.each([
+    {
+      outcome: "picker cancellation",
+      error: new DOMException("Picker cancelled.", "AbortError"),
+      message: null,
+    },
+    {
+      outcome: "picker failure",
+      error: new Error("The picker failed before selecting a folder."),
+      message: /picker failed before selecting a folder/i,
+    },
+  ])("keeps a deferred restore after $outcome", async ({ error, message }) => {
+    const restore = deferred<Snapshot | null>();
+    const choose = deferred<Snapshot>();
+    fileSystem.restoreFolder.mockReturnValue(restore.promise);
+    fileSystem.connectFolder.mockReturnValue(choose.promise);
+    const user = userEvent.setup();
+    render(<TerminalWizard />);
+    await screen.findByText(/0\/10/);
+    const firstInstance = screen.getByTestId("fake-terminal").getAttribute("data-instance");
+
+    await user.click(await screen.findByRole("button", { name: "Choose folder" }));
+    restore.resolve(snapshot({
+      label: "saved-project",
+      files: { "/workspace/saved.md": "saved\n" },
+    }));
+    choose.reject(error);
+
+    await screen.findByText(/saved-project/);
+    expect(screen.getByTestId("fake-terminal").getAttribute("data-files")).toBe("/workspace/saved.md");
+    expect(screen.getByTestId("fake-terminal").getAttribute("data-instance")).not.toBe(firstInstance);
+    if (message) {
+      expect(await screen.findByText(message)).toBeTruthy();
+    } else {
+      expect(screen.queryByText(/Picker cancelled/)).toBeNull();
+    }
+  });
+
   it("remounts the terminal when a granted folder restore finishes", async () => {
     const restore = deferred<Snapshot | null>();
     fileSystem.restoreFolder.mockReturnValue(restore.promise);

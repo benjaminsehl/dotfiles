@@ -11,7 +11,9 @@ if command -v shellcheck >/dev/null 2>&1; then
   shellcheck apply bootstrap bin/configure-codex bin/dev-update bin/dev-doctor bin/terminal-wizard scripts/check-links scripts/check-manifest scripts/check-modes scripts/sync-manifest-versions
 fi
 
-bin/terminal-wizard --help >/dev/null
+launcher_help=$(bin/terminal-wizard --help)
+grep -Fq -- '--dev' <<<"$launcher_help"
+grep -Fq 'With no option, builds and starts the production-local server' <<<"$launcher_help"
 
 scripts/check-manifest
 

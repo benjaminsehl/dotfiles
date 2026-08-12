@@ -20,7 +20,10 @@ After applying the dotfiles, run:
 terminal-wizard
 ```
 
-Or run the app directly from the repository:
+The launcher builds and serves the production-local app. Use
+`terminal-wizard --dev` only while changing the app and you want hot reload.
+
+Or run development mode directly from the repository:
 
 ```bash
 cd apps/terminal-wizard
@@ -32,7 +35,7 @@ Open <http://127.0.0.1:4317>. The fixed loopback origin is intentional: Chrome
 folder permissions, the one-time Live Mac ticket, and browser storage are all
 origin-bound.
 
-Production-local mode:
+Production-local mode directly from the repository:
 
 ```bash
 npm run build

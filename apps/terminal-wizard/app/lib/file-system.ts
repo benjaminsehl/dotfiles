@@ -206,7 +206,7 @@ export function connectFolder(): Promise<FolderSnapshot> {
     return Promise.reject(
       new FileSystemCapabilityError(
         "UNSUPPORTED",
-        "Folder access requires a secure Chromium context.",
+        "Folder access requires a secure browser context with directory-picker support.",
       ),
     );
   }

@@ -198,6 +198,17 @@ test("applies conservative path and text-file policy", () => {
   assert.equal(isTextFileName("unknown.custom-binary"), false);
 });
 
+test("uses capability-neutral wording when folder access is unsupported", async () => {
+  assert.equal(supportsFileSystemAccess(), false);
+  await assert.rejects(connectFolder(), (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.equal((error as Error & { code?: string }).code, "UNSUPPORTED");
+    assert.match(error.message, /secure browser context with directory-picker support/i);
+    assert.doesNotMatch(error.message, /chrom(?:e|ium)/i);
+    return true;
+  });
+});
+
 test("connectFolder invokes a read-only picker immediately and returns DTOs", async () => {
   const store = new MemoryHandleStore();
   __fileSystemTesting.useHandleStore(store);
