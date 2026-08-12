@@ -1,4 +1,4 @@
-# Terminal Wizard
+# Terminal Tutor
 
 A private, interactive field guide to Benjamin’s real developer setup:
 
@@ -106,7 +106,7 @@ WASM checks, and both runtime and full dependency audits.
 
 `npm audit --omit=dev` is clean. The full audit has one documented upstream
 exception: `vinext@1.0.0-beta.5` depends on `image-size@2.0.2`, whose ICNS and
-JXL/HEIF parsers have infinite-loop advisories. Terminal Wizard configures no
+JXL/HEIF parsers have infinite-loop advisories. Terminal Tutor configures no
 image optimizer. Vinext imports `image-size` only from its metadata-route build
 helper; this app defines no file-based metadata image routes and accepts no
 user-controlled build inputs, so those parsers are not reachable through the

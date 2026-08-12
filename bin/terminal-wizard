@@ -20,7 +20,7 @@ Run the local, interactive course for this workstation.
 
   --dev          Run the development server with hot reload
   --production   Explicitly build and run the production-local server
-  --check        Run the complete Terminal Wizard verification suite
+  --check        Run the complete Terminal Tutor verification suite
   --help         Show this help
 
 With no option, builds and starts the production-local server at
@@ -57,7 +57,7 @@ if [[ -r $STAMP ]]; then
 fi
 
 if [[ ! -d $APP_ROOT/node_modules || $installed_lock != "$expected_lock" ]]; then
-  printf 'Installing Terminal Wizard dependencies from package-lock.json…\n'
+  printf 'Installing Terminal Tutor dependencies from package-lock.json…\n'
   (cd "$APP_ROOT" && npm ci)
   printf '%s\n' "$expected_lock" > "$STAMP"
 fi

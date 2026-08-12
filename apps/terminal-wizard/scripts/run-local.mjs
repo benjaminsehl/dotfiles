@@ -79,4 +79,4 @@ process.on("SIGINT", () => stop("SIGINT"));
 process.on("SIGTERM", () => stop("SIGTERM"));
 process.on("exit", () => stop("SIGTERM"));
 
-console.log("Terminal Wizard will open at http://127.0.0.1:4317");
+console.log("Terminal Tutor will open at http://127.0.0.1:4317");

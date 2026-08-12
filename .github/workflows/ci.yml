@@ -21,9 +21,9 @@ jobs:
         run: brew install shellcheck gitleaks jq
       - name: Test dotfiles
         run: ./scripts/test
-      - name: Install Terminal Wizard
+      - name: Install Terminal Tutor
         working-directory: apps/terminal-wizard
         run: npm ci
-      - name: Test Terminal Wizard
+      - name: Test Terminal Tutor
         working-directory: apps/terminal-wizard
         run: npm run check

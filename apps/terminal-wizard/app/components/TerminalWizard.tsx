@@ -168,7 +168,7 @@ export function TerminalWizard() {
 
   const resetAllProgress = () => {
     if (!hasProgress) return;
-    if (!window.confirm("Reset all Terminal Wizard lesson progress?")) return;
+    if (!window.confirm("Reset all Terminal Tutor lesson progress?")) return;
     clearProgress(window.localStorage);
     setProgress({});
   };
@@ -335,7 +335,7 @@ export function TerminalWizard() {
   };
 
   return (
-    <main className="wizard-app">
+    <div className="wizard-app">
       <a className="skip-link" href="#lesson-content">
         Skip to lesson
       </a>
@@ -343,11 +343,54 @@ export function TerminalWizard() {
         Skip to terminal
       </a>
 
-      <header className="app-header">
-        <a className="brand" href="#lesson-content" aria-label="Terminal Wizard home">
+      <header className="tutorial-chrome" aria-label="Terminal Tutor controls">
+        <a className="brand" href="#lesson-content" aria-label="Terminal Tutor">
           <span className="brand-mark" aria-hidden="true">❯_</span>
-          <span>Terminal Wizard</span>
+          <span>Terminal Tutor</span>
         </a>
+        <nav className="course-controls" aria-label="Lesson navigation">
+          <button
+            ref={lessonTriggerRef}
+            className="lesson-menu-trigger"
+            type="button"
+            onClick={toggleLessonMenu}
+            aria-expanded={lessonMenuOpen}
+            aria-controls="lesson-picker"
+            aria-haspopup="dialog"
+          >
+            <span aria-hidden="true">☰</span>
+            <span className="sr-only">Choose lesson</span>
+          </button>
+          <button
+            className="lesson-arrow"
+            type="button"
+            onClick={() => selectLesson(selectedIndex - 1)}
+            disabled={selectedIndex <= 0}
+            aria-label={selectedIndex > 0 ? `Previous lesson: ${lessons[selectedIndex - 1].title}` : "Previous lesson"}
+          >
+            ←
+          </button>
+          <button
+            className="lesson-arrow"
+            type="button"
+            onClick={() => selectLesson(selectedIndex + 1)}
+            disabled={selectedIndex >= lessons.length - 1}
+            aria-label={selectedIndex < lessons.length - 1 ? `Next lesson: ${lessons[selectedIndex + 1].title}` : "Next lesson"}
+          >
+            →
+          </button>
+          <div className="lesson-breadcrumb" aria-label={`Current lesson: ${selectedLesson.title}`}>
+            <span>{selectedLesson.number} / {lessons.length}</span>
+            <strong>{selectedLesson.kicker}</strong>
+            <b aria-hidden="true">/</b>
+            <span>{selectedLesson.title}</span>
+          </div>
+          <span className="course-meta">{selectedLesson.level} · {selectedLesson.minutes} min</span>
+        </nav>
+        <div className="mobile-pane-switch" role="group" aria-label="Workspace pane">
+          <button type="button" aria-pressed={mobilePane === "lesson"} onClick={() => setMobilePane("lesson")}>Lesson</button>
+          <button type="button" aria-pressed={mobilePane === "terminal"} onClick={() => setMobilePane("terminal")}>Terminal</button>
+        </div>
         <div className="progress-summary">
           <span className="progress-ring" aria-hidden="true" style={{ "--progress": `${(completedLessons / lessons.length) * 360}deg` } as React.CSSProperties} />
           <span className="progress-copy" aria-label={`${completedLessons} of ${lessons.length} lessons complete`}><strong>{completedLessons}/{lessons.length}</strong> complete</span>
@@ -362,55 +405,11 @@ export function TerminalWizard() {
           </button>
         </div>
       </header>
-
-      <nav className="course-toolbar" aria-label="Lesson navigation">
-        <button
-          ref={lessonTriggerRef}
-          className="lesson-menu-trigger"
-          type="button"
-          onClick={toggleLessonMenu}
-          aria-expanded={lessonMenuOpen}
-          aria-controls="lesson-picker"
-          aria-haspopup="dialog"
-        >
-          <span aria-hidden="true">☰</span>
-          <span className="sr-only">Choose lesson</span>
-        </button>
-        <button
-          className="lesson-arrow"
-          type="button"
-          onClick={() => selectLesson(selectedIndex - 1)}
-          disabled={selectedIndex <= 0}
-          aria-label={selectedIndex > 0 ? `Previous lesson: ${lessons[selectedIndex - 1].title}` : "Previous lesson"}
-        >
-          ←
-        </button>
-        <button
-          className="lesson-arrow"
-          type="button"
-          onClick={() => selectLesson(selectedIndex + 1)}
-          disabled={selectedIndex >= lessons.length - 1}
-          aria-label={selectedIndex < lessons.length - 1 ? `Next lesson: ${lessons[selectedIndex + 1].title}` : "Next lesson"}
-        >
-          →
-        </button>
-        <div className="lesson-breadcrumb" aria-label={`Current lesson: ${selectedLesson.title}`}>
-          <span>{selectedLesson.number} / {lessons.length}</span>
-          <strong>{selectedLesson.kicker}</strong>
-          <b aria-hidden="true">/</b>
-          <span>{selectedLesson.title}</span>
-        </div>
-        <span className="course-meta">{selectedLesson.level} · {selectedLesson.minutes} min</span>
-        <div className="mobile-pane-switch" role="group" aria-label="Workspace pane">
-          <button type="button" aria-pressed={mobilePane === "lesson"} onClick={() => setMobilePane("lesson")}>Lesson</button>
-          <button type="button" aria-pressed={mobilePane === "terminal"} onClick={() => setMobilePane("terminal")}>Terminal</button>
-        </div>
-      </nav>
       <p className="sr-only" role="status" aria-live="polite">
         Lesson {selectedIndex + 1} of {lessons.length}: {selectedLesson.title}
       </p>
 
-      <div className={`tutorial-workspace show-${mobilePane}`}>
+      <main className={`tutorial-workspace show-${mobilePane}`}>
         <article className="lesson-pane" id="lesson-content" ref={lessonPanelRef} tabIndex={-1}>
           <div className="lesson-pane-inner">
             <header className="lesson-intro">
@@ -491,8 +490,7 @@ export function TerminalWizard() {
         <section className="terminal-pane" id="terminal-workspace" aria-label="Terminal workspace" tabIndex={-1}>
           <div className="terminal-card">
             <div className="terminal-toolbar">
-              <div className="window-dots" aria-hidden="true"><span /><span /><span /></div>
-              <div className="mode-switch" aria-label="Terminal access mode">
+              <div className="mode-switch" role="group" aria-label="Terminal access mode">
                 <button className={mode === "practice" ? "active" : ""} aria-pressed={mode === "practice"} onClick={() => setMode("practice")}>
                   <span className="shield-mark" aria-hidden="true">◇</span> Practice
                 </button>
@@ -599,7 +597,7 @@ export function TerminalWizard() {
             ) : null}
           </div>
         </section>
-      </div>
+      </main>
 
       {lessonMenuOpen ? (
         <>
@@ -633,6 +631,15 @@ export function TerminalWizard() {
                 );
               })}
             </nav>
+            <div className="lesson-picker-actions">
+              <button
+                type="button"
+                onClick={resetAllProgress}
+                disabled={!progressHydrated || !hasProgress}
+              >
+                Reset course progress
+              </button>
+            </div>
           </section>
         </>
       ) : null}
@@ -669,6 +676,6 @@ export function TerminalWizard() {
           </section>
         </div>
       ) : null}
-    </main>
+    </div>
   );
 }

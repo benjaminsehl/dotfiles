@@ -60,7 +60,7 @@ The shell never downloads tools. Homebrew and mise work happens only when
 
 `manifest/setup.json` is the machine-readable teaching catalog. It describes
 the installed tools, aliases, workflows, keyboard shortcuts, safety model, and
-ordered practice paths. Terminal Wizard can use it directly instead of keeping
+ordered practice paths. Terminal Tutor can use it directly instead of keeping
 a second hard-coded description of the workstation.
 
 The first suggested sequence is:

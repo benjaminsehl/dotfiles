@@ -12,6 +12,8 @@ if command -v shellcheck >/dev/null 2>&1; then
 fi
 
 launcher_help=$(bin/terminal-wizard --help)
+grep -Fq 'Usage: terminal-wizard' <<<"$launcher_help"
+grep -Fq 'Terminal Tutor' <<<"$launcher_help"
 grep -Fq -- '--dev' <<<"$launcher_help"
 grep -Fq 'With no option, builds and starts the production-local server' <<<"$launcher_help"
 

@@ -1,6 +1,6 @@
 # Third-party notices
 
-Terminal Wizard redistributes or adapts the following third-party work:
+Terminal Tutor redistributes or adapts the following third-party work:
 
 - `public/wterm.wasm` is copied from `@wterm/core` 0.3.3, part of
   [Vercel Labs' wterm](https://github.com/vercel-labs/wterm). Wterm is

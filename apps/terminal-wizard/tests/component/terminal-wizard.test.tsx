@@ -174,7 +174,17 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("Terminal Wizard client journey", () => {
+describe("Terminal Tutor client journey", () => {
+  it("keeps product identity and lesson navigation in one banner", async () => {
+    render(<TerminalWizard />);
+    await waitForHydration();
+
+    const banner = screen.getByRole("banner", { name: "Terminal Tutor controls" });
+    expect(within(banner).getByLabelText("Terminal Tutor")).toBeTruthy();
+    expect(within(banner).getByRole("navigation", { name: "Lesson navigation" })).toBeTruthy();
+    expect(screen.getByRole("main")).toBeTruthy();
+  });
+
   it("does not let a late restore overwrite a newer folder choice", async () => {
     const restore = deferred<Snapshot | null>();
     fileSystem.restoreFolder.mockReturnValue(restore.promise);

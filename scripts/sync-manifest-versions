@@ -9,7 +9,7 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/sync-manifest-versions [--check|--write]
 
-Compare the versions taught by Terminal Wizard with the commands on this Mac.
+Compare the versions taught by Terminal Tutor with the commands on this Mac.
 Use --write after an intentional tool update to refresh manifest/setup.json.
 USAGE
 }

@@ -242,7 +242,7 @@ export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalPro
           TERM_PROGRAM: "ghostty",
         },
         greeting: [
-          "\u001b[38;2;202;211;245mTerminal Wizard · safe practice\u001b[0m",
+          "\u001b[38;2;202;211;245mTerminal Tutor · safe practice\u001b[0m",
           "\u001b[38;2;166;173;200mIn-memory shell · network off · changes vanish on reload\u001b[0m",
           hasWorkspace ? "\u001b[38;2;166;227;161mRead-only folder snapshot mounted at /workspace\u001b[0m" : "Type help, or insert a command from the lesson below.",
         ],

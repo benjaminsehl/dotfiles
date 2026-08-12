@@ -8,7 +8,7 @@ Ghostty → zsh + Starship → Herdr → OMP / Codex
 ```
 
 The repository is the source of truth for shell behavior, applications,
-runtimes, safety defaults, and the tool manifest consumed by Terminal Wizard.
+runtimes, safety defaults, and the tool manifest consumed by Terminal Tutor.
 Network work never happens during shell startup.
 
 ## Install on a Mac
@@ -53,9 +53,9 @@ manifest-backed learning path.
 Codex and OMP have intentionally separate safety defaults. See
 [docs/CODEX.md](docs/CODEX.md) for the exact behavior.
 
-## Terminal Wizard
+## Terminal Tutor
 
-![Terminal Wizard social card](apps/terminal-wizard/public/og.png)
+![Terminal Tutor social card](apps/terminal-wizard/public/og.png)
 
 The repository includes a local, interactive course backed by wterm and the
 same `manifest/setup.json` that declares the workstation. Practice runs in an

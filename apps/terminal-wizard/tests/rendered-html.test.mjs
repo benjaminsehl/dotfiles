@@ -14,14 +14,14 @@ async function render() {
   );
 }
 
-test("server-renders the compact Terminal Wizard learning shell", async () => {
+test("server-renders the compact Terminal Tutor learning shell", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Terminal Wizard · Own your Mac CLI<\/title>/i);
-  assert.match(html, /Terminal Wizard home/);
+  assert.match(html, /<title>Terminal Tutor · Own your Mac CLI<\/title>/i);
+  assert.match(html, /aria-label="Terminal Tutor"/);
   assert.match(html, /aria-label="Lesson navigation"/);
   assert.match(html, /Choose lesson/);
   assert.match(html, /aria-label="Previous lesson(?::[^"]+)?"/);
@@ -32,6 +32,7 @@ test("server-renders the compact Terminal Wizard learning shell", async () => {
   assert.match(html, /aria-label="Terminal workspace"/);
   assert.match(html, /aria-controls="folder-panel"[^>]*aria-haspopup="dialog"/);
   assert.match(html, /aria-label="Practice files:/);
+  assert.doesNotMatch(html, /window-dots|Terminal Wizard/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/i);
   assert.doesNotMatch(html, /fonts\.googleapis|googletagmanager|segment\.com/i);
 });
