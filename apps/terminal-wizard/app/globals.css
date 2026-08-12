@@ -579,7 +579,7 @@ a {
 
 .wizard-wterm.wterm {
   --term-fg: #cdd6f4;
-  --term-bg: #181825;
+  --term-bg: #1e1e2e;
   --term-cursor: #f5e0dc;
   --term-color-0: #45475a;
   --term-color-1: #f38ba8;
@@ -598,9 +598,9 @@ a {
   --term-color-14: #94e2d5;
   --term-color-15: #a6adc8;
   --term-font-family: var(--mono);
-  --term-font-size: 13px;
+  --term-font-size: 14.5px;
   --term-line-height: 1.45;
-  --term-row-height: 19px;
+  --term-row-height: 21px;
   min-height: 420px;
   max-height: 520px;
   padding: 22px 24px 28px;
@@ -1141,7 +1141,7 @@ footer a {
   .terminal-toolbar { padding: 0 12px; }
   .window-dots span { width: 8px; height: 8px; }
   .mode-switch button { padding: 6px 8px; }
-  .wizard-wterm.wterm { --term-font-size: 11px; --term-row-height: 17px; min-height: 360px; padding: 17px 15px 24px; }
+  .wizard-wterm.wterm { min-height: 360px; padding: 17px 15px 24px; }
   .terminal-stage, .terminal-loading { min-height: 360px; }
   .lesson-intro { grid-template-columns: 1fr; gap: 22px; align-items: start; }
   .lesson-score { width: fit-content; }

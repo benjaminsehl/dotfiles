@@ -11,10 +11,12 @@ import {
 export type LessonCommandMode = "either" | "practice" | "live";
 
 export type LessonCommand = {
+  id: string;
   command: string;
   label: string;
   detail: string;
   mode?: LessonCommandMode;
+  required?: boolean;
 };
 
 export type Lesson = {
@@ -62,7 +64,20 @@ function shortcut(keys: string): string {
   return `${entry.keys}: ${entry.action}`;
 }
 
-export const lessons: Lesson[] = [
+type LessonCommandInput = Omit<LessonCommand, "id">;
+type LessonInput = Omit<Lesson, "commands"> & { commands: LessonCommandInput[] };
+
+function stableCommandId(command: LessonCommandInput): string {
+  const source = `${command.mode ?? "either"}:${command.command.trim().replace(/\s+/g, " ")}`;
+  let hash = 0x811c9dc5;
+  for (const character of source) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `step-${(hash >>> 0).toString(36)}`;
+}
+
+const lessonInputs: LessonInput[] = [
   {
     id: "orientation",
     number: "01",
@@ -114,7 +129,9 @@ export const lessons: Lesson[] = [
       { command: "eza --tree --level=2", label: "See the shape", detail: "A compact two-level project tree." },
       { command: "ls -la", label: "Reveal details", detail: "Include hidden files and permissions." },
       { command: "cd docs && pwd", label: "Move, then verify", detail: "Chain a successful move with an inspection." },
-      { command: "z dotfiles", label: "Jump by memory", detail: "On your Mac, zoxide ranks folders you visit." },
+      { command: "cd .. && pwd", label: "Return to the project", detail: "Move back to the repository root before starting the next lesson." },
+      { command: "z dotfiles", label: "Model a remembered jump", detail: "Practice shows how zoxide ranks folders without changing the Mac.", mode: "practice" },
+      { command: "cd .. && z dotfiles && pwd", label: "Make the real jump", detail: "Optional Live exercise: leave the repo, jump back by memory, and verify the destination.", mode: "live", required: false },
     ],
     fieldNotes: [
       shortcut("Control-T"),
@@ -136,9 +153,9 @@ export const lessons: Lesson[] = [
     commands: [
       { command: "fd -e md", label: "Find by name", detail: "Find Markdown files with friendly defaults." },
       { command: "rg \"TODO\" .", label: "Find by content", detail: "Search recursively with file and line context." },
-      { command: "bat package.json", label: "Read comfortably", detail: "Syntax-aware output with paging on the real Mac." },
+      { command: "bat apps/terminal-wizard/package.json", label: "Read comfortably", detail: "Preview the real app package from the dotfiles root." },
       {
-        command: "jq '.tools[] | select(.category == \"search\") | .command' setup.json",
+        command: "jq '.tools[] | select(.category == \"search\") | .command' manifest/setup.json",
         label: "Query structured data",
         detail: "Filter the workstation manifest down to search tools.",
       },
@@ -209,11 +226,11 @@ export const lessons: Lesson[] = [
     manifestPathId: agentPath.id,
     commands: [
       { command: "herdr --version", label: "Check Herdr", detail: `The installed workspace manager is ${herdrVersion}.` },
-      { command: "herdr", label: "Enter your persistent workspace", detail: "Live only: open Herdr, use Control-B then ?, and detach with Control-B then Q.", mode: "live" },
+      { command: "herdr", label: "Enter your persistent workspace", detail: "Optional Live exercise: open Herdr, use Control-B then ?, and detach with Control-B then Q.", mode: "live", required: false },
       { command: "omp --version", label: "Check OMP", detail: `The installed coding agent is ${ompVersion}.` },
-      { command: `omp --approval-mode ${setupSafety.approvalMode}`, label: "Start OMP with the declared boundary", detail: "Live only: launch a real agent session; exit it before continuing the lesson.", mode: "live" },
+      { command: `omp --approval-mode ${setupSafety.approvalMode}`, label: "Start OMP with the declared boundary", detail: "Optional Live exercise: launch a real agent session; exit it before continuing the lesson.", mode: "live", required: false },
       { command: "codex --version", label: "Check Codex", detail: `The installed Codex CLI is ${codexVersion}.` },
-      { command: "codex", label: "Start Codex", detail: "Live only: launch Codex inside a Herdr pane when you want the session to persist.", mode: "live" },
+      { command: "codex", label: "Start Codex", detail: "Optional Live exercise: launch Codex inside a Herdr pane when you want the session to persist.", mode: "live", required: false },
       {
         command: "omp config get tools.approvalMode",
         label: "Verify approvals",
@@ -291,7 +308,7 @@ export const lessons: Lesson[] = [
     minutes: 10,
     commands: [
       { command: "e README.md", label: "Open the editor", detail: `${editorAlias.name} expands to \`${editorAlias.expandsTo}\`; Practice shows a safe preview instead of opening full-screen Neovim.`, mode: "practice" },
-      { command: "sg run -p 'export const $A = $B' .", label: "Search structure", detail: "Use ast-grep to find exported constants by syntax rather than text alone.", mode: "practice" },
+      { command: "sg run -p 'export const $A = $B' apps/terminal-wizard/app", label: "Search structure", detail: "Use ast-grep to find exported constants by syntax rather than text alone." },
       { command: "direnv status", label: "Inspect project environment", detail: "Confirm what a directory would load before approving its .envrc." },
       { command: "shellcheck scripts/check-links", label: "Lint shell code", detail: "Catch quoting, portability, and control-flow mistakes." },
       { command: "gitleaks detect --redact", label: "Scan before Git", detail: "Check credential-shaped content without printing a detected value." },
@@ -318,7 +335,7 @@ export const lessons: Lesson[] = [
       { command: "git add notes/terminal-tricks.md", label: "Stage intentionally", detail: "Select the one file that belongs to this checkpoint.", mode: "practice" },
       { command: "git commit -m \"Document terminal trick\"", label: "Record the why", detail: "Write a concise imperative commit message.", mode: "practice" },
       { command: "gh pr create --draft --fill", label: "Prepare review", detail: "Practice models the GitHub operation without contacting GitHub.", mode: "practice" },
-      { command: "gh repo view benjaminsehl/dotfiles", label: "Verify the real remote", detail: "Live only: read the published repository without changing it.", mode: "live" },
+      { command: "gh repo view benjaminsehl/dotfiles", label: "Verify the real remote", detail: "Optional Live verification: read the published repository without changing it.", mode: "live", required: false },
     ],
     fieldNotes: [
       "A commit should contain one explainable idea, not every nearby edit.",
@@ -327,6 +344,14 @@ export const lessons: Lesson[] = [
     ],
   },
 ];
+
+export const lessons: Lesson[] = lessonInputs.map((lesson) => ({
+  ...lesson,
+  commands: lesson.commands.map((command) => ({
+    ...command,
+    id: stableCommandId(command),
+  })),
+}));
 
 export function commandMatches(
   command: string,

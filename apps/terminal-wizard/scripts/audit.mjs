@@ -1,15 +1,50 @@
 import { spawnSync } from "node:child_process";
 
-const result = spawnSync("npm", ["audit", "--json"], {
-  cwd: new URL("../", import.meta.url),
-  encoding: "utf8",
-  maxBuffer: 10 * 1024 * 1024,
-});
+const lifecyclePolicy = spawnSync(
+  "npm",
+  ["approve-scripts", "--allow-scripts-pending", "--json"],
+  {
+    cwd: new URL("../", import.meta.url),
+    encoding: "utf8",
+    maxBuffer: 1024 * 1024,
+  },
+);
 
 function fail(message) {
   process.stderr.write(`${message}\n`);
   process.exit(1);
 }
+
+if (lifecyclePolicy.error) {
+  fail(`npm lifecycle policy check could not start: ${lifecyclePolicy.error.message}`);
+}
+if (lifecyclePolicy.signal || lifecyclePolicy.status !== 0) {
+  fail(
+    lifecyclePolicy.stderr
+      || `npm lifecycle policy check failed with ${lifecyclePolicy.signal ?? lifecyclePolicy.status}`,
+  );
+}
+
+let lifecycleReport;
+try {
+  lifecycleReport = JSON.parse(lifecyclePolicy.stdout);
+} catch {
+  fail(lifecyclePolicy.stderr || lifecyclePolicy.stdout || "npm lifecycle policy check did not return JSON");
+}
+if (
+  typeof lifecycleReport !== "object"
+  || lifecycleReport === null
+  || !Array.isArray(lifecycleReport.allowScripts)
+  || lifecycleReport.allowScripts.length > 0
+) {
+  fail("Every dependency lifecycle script must be explicitly approved or denied in package.json");
+}
+
+const result = spawnSync("npm", ["audit", "--json"], {
+  cwd: new URL("../", import.meta.url),
+  encoding: "utf8",
+  maxBuffer: 10 * 1024 * 1024,
+});
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);

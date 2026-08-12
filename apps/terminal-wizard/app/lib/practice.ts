@@ -1,5 +1,5 @@
 import { defineCommand, type CommandContext, type ExecResult } from "just-bash";
-import type { BashShell } from "@wterm/just-bash";
+import type { PracticeShell } from "./practice-shell";
 import {
   getSetupToolVersion,
   setupManifest,
@@ -28,6 +28,7 @@ export const practiceVersionLines: Record<string, string> = {
 };
 
 const practiceRuntimeIds = ["node", "pnpm", "bun", "go", "python"] as const;
+export const PRACTICE_ROOT = "/home/benjamin/Sites/dotfiles";
 
 export const practiceDoctorOutput = `Developer workstation declaration (practice model)
 ✓ expected clean zsh login; no Fig hooks
@@ -43,12 +44,12 @@ Switch to Live Mac and run dev-doctor to observe the current workstation.
 `;
 
 export const basePracticeFiles: Record<string, string> = {
-  "/home/benjamin/Developer/terminal-wizard/README.md": `# Terminal Wizard
+  [`${PRACTICE_ROOT}/README.md`]: `# Benjamin's dotfiles
 
-Practice is an in-memory shell. Try pwd, tree, rg, jq, and git status.
+Practice is an in-memory model of ~/Sites/dotfiles. Try pwd, tree, rg, jq, and git status.
 Nothing here can alter the Mac.
 `,
-  "/home/benjamin/Developer/terminal-wizard/package.json": `${JSON.stringify(
+  [`${PRACTICE_ROOT}/apps/terminal-wizard/package.json`]: `${JSON.stringify(
     {
       name: "terminal-wizard",
       private: true,
@@ -60,7 +61,7 @@ Nothing here can alter the Mac.
     null,
     2,
   )}\n`,
-  "/home/benjamin/Developer/terminal-wizard/docs/shortcuts.md": `# Shortcuts
+  [`${PRACTICE_ROOT}/docs/shortcuts.md`]: `# Shortcuts
 
 - Control-R: fuzzy history
 - Control-T: fuzzy file finder
@@ -68,30 +69,30 @@ Nothing here can alter the Mac.
 - Control-B then ?: Herdr help
 - Control-B then Q: detach Herdr
 `,
-  "/home/benjamin/Developer/terminal-wizard/docs/TODO.md": `# Practice ideas
+  [`${PRACTICE_ROOT}/docs/TODO.md`]: `# Practice ideas
 
 TODO: rehearse one safe search before switching to Live Mac.
 
 - [ ] Search this project with rg
-- [ ] Inspect setup.json with jq
+- [ ] Inspect manifest/setup.json with jq
 - [ ] Run dev-doctor
 `,
-  "/home/benjamin/Developer/terminal-wizard/notes/terminal-tricks.md": `# Terminal trick
+  [`${PRACTICE_ROOT}/notes/terminal-tricks.md`]: `# Terminal trick
 
 Inspect first, mutate second.
 `,
-  "/home/benjamin/Developer/terminal-wizard/scripts/check-links": `#!/usr/bin/env bash
+  [`${PRACTICE_ROOT}/scripts/check-links`]: `#!/usr/bin/env bash
 set -euo pipefail
 printf 'practice links are healthy\\n'
 `,
-  "/home/benjamin/Developer/terminal-wizard/app/example.ts": `export const ready = true;
+  [`${PRACTICE_ROOT}/apps/terminal-wizard/app/example.ts`]: `export const ready = true;
 `,
-  "/home/benjamin/Developer/terminal-wizard/config/omp.yml": `tools:
+  [`${PRACTICE_ROOT}/practice/omp.yml`]: `tools:
   approvalMode: ${setupSafety.approvalMode}
 secrets:
   enabled: ${setupSafety.secretsEnabled}
 `,
-  "/home/benjamin/Developer/terminal-wizard/setup.json": JSON.stringify(setupManifest, null, 2),
+  [`${PRACTICE_ROOT}/manifest/setup.json`]: JSON.stringify(setupManifest, null, 2),
 };
 
 function versionCommand(name: string) {
@@ -165,7 +166,7 @@ async function practiceTree(args: string[], ctx: CommandContext): Promise<ExecRe
   const root = ctx.fs.resolvePath(ctx.cwd, target);
   if (!(await ctx.fs.exists(root))) {
     if (root === "/workspace") {
-      return ok(
+      return fail(
         "/workspace\n└── No read-only folder is connected. Use “Connect a folder” above, then run this again.\n",
       );
     }
@@ -197,7 +198,7 @@ async function practiceRipgrep(args: string[], ctx: CommandContext): Promise<Exe
   for (const [index, root] of roots.entries()) {
     if (await ctx.fs.exists(root)) continue;
     if (root === "/workspace") {
-      return ok(
+      return fail(
         "No read-only folder is connected at /workspace. Use “Connect a folder” above, then run this search again.\n",
       );
     }
@@ -368,10 +369,10 @@ function astGrepResult(args: string[]): ExecResult {
   if (args[patternIndex + 1] !== "export const $A = $B") {
     return fail("sg: that pattern has no matches in the practice project\n");
   }
-  return ok("app/example.ts:1:export const ready = true;\n");
+  return ok("apps/terminal-wizard/app/example.ts:1:export const ready = true;\n");
 }
 
-export function registerPracticeCommands(shell: BashShell): void {
+export function registerPracticeCommands(shell: PracticeShell): void {
   const bash = shell.bash;
   if (!bash) return;
 
@@ -468,7 +469,7 @@ export function registerPracticeCommands(shell: BashShell): void {
 
 export function promptFor(cwd: string): string {
   const short = cwd
-    .replace("/home/benjamin/Developer/terminal-wizard", "terminal-wizard")
+    .replace(PRACTICE_ROOT, "dotfiles")
     .replace("/home/benjamin", "~");
-  return `\x1b[38;2;137;180;250m${short}\x1b[0m \x1b[38;2;166;227;161m❯\x1b[0m `;
+  return `\x1b[38;2;137;180;250m${short}\x1b[0m \x1b[38;2;166;227;161m❯❯❯\x1b[0m `;
 }

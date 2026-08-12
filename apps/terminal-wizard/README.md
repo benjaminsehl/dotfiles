@@ -45,11 +45,17 @@ Node 24 is the declared runtime; `engines.node` allows Node 22.13 or newer.
 
 ### Practice (default)
 
-- An in-memory Bash-compatible filesystem; changes disappear on reload.
+- An in-memory Bash-compatible model of the dotfiles repository; changes
+  disappear on reload.
 - No network configuration, native process access, or Mac credentials.
 - The terminal parser is libghostty, so color, Unicode, and escape handling
   closely match Ghostty even though the shell itself is simulated.
 - Lesson buttons insert commands but never press Return.
+- Each submitted command executes exactly once. Only an exact, required command
+  that exits successfully in the active lesson earns progress; failed commands
+  remain visibly incomplete.
+- Core rows can still be explored in Live Mac, but Practice is the source of
+  completion credit until Live has an authenticated command-result boundary.
 
 ### Read-only folder snapshot
 
@@ -68,7 +74,10 @@ snapshot** in the folder card after files change on disk.
 
 Live Mac is a real `/bin/zsh -l` PTY with the user’s full permissions. Opening
 it requires typing `LIVE`. The shell starts at the checked-out dotfiles root so
-course commands inspect the same project in Practice and Live. The bridge:
+course paths match the in-memory dotfiles model used by Practice. Live exercises
+are optional verification: they do not earn completion until the bridge can
+report a trustworthy command result rather than merely observing keystrokes.
+The bridge:
 
 - binds only to `127.0.0.1:4318`;
 - checks the exact browser Origin, HTTP Host, WebSocket path, and loopback peer;
@@ -87,9 +96,10 @@ once Live Mac is connected.
 npm run check
 ```
 
-This runs TypeScript, ESLint, policy/unit tests, adversarial PTY boundary tests,
-a production build, rendered HTML and security-header assertions, local WASM
-checks, and both runtime and full dependency audits.
+This runs TypeScript, ESLint, policy/unit tests, browser-component tests for
+permission races, Live consent, and progress behavior, adversarial PTY boundary
+tests, a production build, rendered HTML and security-header assertions, local
+WASM checks, and both runtime and full dependency audits.
 
 `npm audit --omit=dev` is clean. The full audit has one documented upstream
 exception: `vinext@1.0.0-beta.5` depends on `image-size@2.0.2`, whose ICNS and

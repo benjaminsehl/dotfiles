@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, stat } from "node:fs/promises";
+import { access, readFile, stat } from "node:fs/promises";
 import test from "node:test";
 
 async function render() {
@@ -50,7 +50,11 @@ test("sets defense-in-depth document headers", async () => {
 test("ships terminal parsers locally", async () => {
   const ghostty = new URL("../public/ghostty-vt.wasm", import.meta.url);
   const wterm = new URL("../public/wterm.wasm", import.meta.url);
+  const installedGhostty = new URL("../node_modules/@wterm/ghostty/wasm/ghostty-vt.wasm", import.meta.url);
+  const installedWterm = new URL("../node_modules/@wterm/core/wasm/wterm.wasm", import.meta.url);
   await Promise.all([access(ghostty), access(wterm)]);
   assert.ok((await stat(ghostty)).size > 400_000);
   assert.ok((await stat(wterm)).size > 10_000);
+  assert.deepEqual(await readFile(ghostty), await readFile(installedGhostty));
+  assert.deepEqual(await readFile(wterm), await readFile(installedWterm));
 });

@@ -12,6 +12,7 @@ import {
 import { lessons } from "../app/data/lessons";
 import {
   basePracticeFiles,
+  PRACTICE_ROOT,
   practiceDoctorOutput,
   practiceVersionLines,
 } from "../app/lib/practice";
@@ -33,15 +34,15 @@ test("loads the checked-in workstation manifest as the app source of truth", () 
 
 test("mounts the complete current manifest in the practice filesystem", () => {
   const practiceManifest = JSON.parse(
-    basePracticeFiles["/home/benjamin/Developer/terminal-wizard/setup.json"],
+    basePracticeFiles[`${PRACTICE_ROOT}/manifest/setup.json`],
   );
   assert.deepEqual(practiceManifest, manifestOnDisk);
   assert.match(
-    basePracticeFiles["/home/benjamin/Developer/terminal-wizard/config/omp.yml"],
+    basePracticeFiles[`${PRACTICE_ROOT}/practice/omp.yml`],
     new RegExp(`approvalMode: ${manifestOnDisk.safety.ompApprovalMode}`),
   );
   assert.match(
-    basePracticeFiles["/home/benjamin/Developer/terminal-wizard/config/omp.yml"],
+    basePracticeFiles[`${PRACTICE_ROOT}/practice/omp.yml`],
     new RegExp(`enabled: ${manifestOnDisk.safety.ompSecretsEnabled}`),
   );
 });

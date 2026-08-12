@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { commandMatches, lessons } from "@/app/data/lessons";
+import { lessons } from "@/app/data/lessons";
 import { declaredToolCount, setupStack } from "@/app/data/setup-manifest";
 import {
   connectFolder,
@@ -18,17 +18,16 @@ import {
   type Progress,
 } from "@/app/lib/progress";
 import {
+  isLessonComplete,
+  recordLessonResult,
+  requiredLessonCommands,
+  type LessonCommandResult,
+} from "@/app/lib/lesson-progress";
+import {
   WizardTerminal,
   type TerminalMode,
   type WizardTerminalHandle,
 } from "@/app/components/WizardTerminal";
-
-function isComplete(progress: Progress, lessonId: string, commandCount: number): boolean {
-  const entries = progress[lessonId] ?? [];
-  return Array.from({ length: commandCount }, (_, index) => String(index)).every((index) =>
-    entries.includes(index),
-  );
-}
 
 export function TerminalWizard() {
   const [selectedId, setSelectedId] = useState(lessons[0].id);
@@ -44,6 +43,7 @@ export function TerminalWizard() {
   const [pickerSupported, setPickerSupported] = useState(false);
   const terminalRef = useRef<WizardTerminalHandle>(null);
   const liveInputRef = useRef<HTMLInputElement>(null);
+  const folderOperationRef = useRef(0);
   const selectedLesson = lessons.find((lesson) => lesson.id === selectedId) ?? lessons[0];
   const closeLiveDialog = useCallback(() => {
     setLiveDialogOpen(false);
@@ -65,12 +65,18 @@ export function TerminalWizard() {
         window.clearTimeout(progressTimer);
       };
     }
+    const folderOperation = folderOperationRef.current;
     void restoreFolder()
       .then((snapshot) => {
-        if (active && snapshot) setFolder(snapshot);
+        if (active && folderOperationRef.current === folderOperation && snapshot) {
+          setFolder(snapshot);
+          setFolderRevision((revision) => revision + 1);
+        }
       })
       .catch(() => {
-        if (active) setFolderMessage("The saved folder could not be restored. Choose it again when you are ready.");
+        if (active && folderOperationRef.current === folderOperation) {
+          setFolderMessage("The saved folder could not be restored. Choose it again when you are ready.");
+        }
       });
     return () => {
       active = false;
@@ -101,7 +107,7 @@ export function TerminalWizard() {
   }, [closeLiveDialog, liveDialogOpen]);
 
   const completedLessons = useMemo(
-    () => lessons.filter((lesson) => isComplete(progress, lesson.id, lesson.commands.length)).length,
+    () => lessons.filter((lesson) => isLessonComplete(progress, lesson)).length,
     [progress],
   );
   const hasProgress = Object.values(progress).some((entries) => entries.length > 0);
@@ -113,63 +119,77 @@ export function TerminalWizard() {
     setProgress({});
   };
 
-  const recordCommand = useCallback((command: string, commandMode: TerminalMode) => {
+  const recordCommand = useCallback((result: LessonCommandResult) => {
     setProgress((current) => {
-      const next: Progress = { ...current };
-      for (const lesson of lessons) {
-        lesson.commands.forEach((lessonCommand, index) => {
-          if (!commandMatches(command, lessonCommand, commandMode)) return;
-          const entries = new Set(next[lesson.id] ?? []);
-          entries.add(String(index));
-          next[lesson.id] = [...entries];
-        });
-      }
-      return next;
+      const lesson = lessons.find((candidate) => candidate.id === result.lessonId);
+      if (!lesson) return current;
+      return recordLessonResult(current, lesson, result);
     });
   }, []);
 
   const chooseFolder = async () => {
+    const folderOperation = folderOperationRef.current + 1;
+    folderOperationRef.current = folderOperation;
     setFolderMessage("");
     const pending = connectFolder();
     setFolderBusy(true);
     try {
       const snapshot = await pending;
+      if (folderOperationRef.current !== folderOperation) return;
       setFolder(snapshot);
       setFolderRevision((revision) => revision + 1);
       setMode("practice");
     } catch (error) {
+      if (folderOperationRef.current !== folderOperation) return;
       if (error instanceof DOMException && error.name === "AbortError") return;
       setFolderMessage(error instanceof Error ? error.message : "That folder could not be connected.");
     } finally {
-      setFolderBusy(false);
+      if (folderOperationRef.current === folderOperation) setFolderBusy(false);
     }
   };
 
   const reconnect = async () => {
+    const folderOperation = folderOperationRef.current + 1;
+    folderOperationRef.current = folderOperation;
     setFolderBusy(true);
     setFolderMessage("");
     try {
       const snapshot = await reconnectFolder();
+      if (folderOperationRef.current !== folderOperation) return;
       setFolder(snapshot);
       setFolderRevision((revision) => revision + 1);
       setMode("practice");
-      setFolderMessage(`Snapshot refreshed: ${snapshot.fileCount} safe text files are available under /workspace.`);
+      if (snapshot.permission === "granted") {
+        setFolderMessage(`Snapshot refreshed: ${snapshot.fileCount} safe text files are available under /workspace.`);
+      } else if (snapshot.permission === "denied") {
+        setFolderMessage("Folder access remains denied. No files are available under /workspace.");
+      } else {
+        setFolderMessage("Folder permission is still required. No files are available under /workspace.");
+      }
     } catch (error) {
+      if (folderOperationRef.current !== folderOperation) return;
       setFolderMessage(error instanceof Error ? error.message : "The browser did not restore folder access.");
     } finally {
-      setFolderBusy(false);
+      if (folderOperationRef.current === folderOperation) setFolderBusy(false);
     }
   };
 
   const forget = async () => {
+    const folderOperation = folderOperationRef.current + 1;
+    folderOperationRef.current = folderOperation;
+    setFolderBusy(true);
     setFolderMessage("");
     try {
       await forgetFolder();
+      if (folderOperationRef.current !== folderOperation) return;
       setFolder(null);
       setFolderRevision((revision) => revision + 1);
       setFolderMessage("Folder forgotten here. Persistent browser permission can also be revoked in browser site settings.");
     } catch {
+      if (folderOperationRef.current !== folderOperation) return;
       setFolderMessage("The browser could not forget the saved folder. Clear this site's stored data before relying on a reload to remove it.");
+    } finally {
+      if (folderOperationRef.current === folderOperation) setFolderBusy(false);
     }
   };
 
@@ -180,8 +200,9 @@ export function TerminalWizard() {
   };
 
   const lessonEntries = progress[selectedLesson.id] ?? [];
-  const lessonComplete = isComplete(progress, selectedLesson.id, selectedLesson.commands.length);
-  const practicedCount = selectedLesson.commands.filter((_, index) => lessonEntries.includes(String(index))).length;
+  const requiredCommands = requiredLessonCommands(selectedLesson);
+  const lessonComplete = isLessonComplete(progress, selectedLesson);
+  const practicedCount = requiredCommands.filter((command) => lessonEntries.includes(command.id)).length;
   return (
     <main className="wizard-app">
       <a className="skip-link" href="#lesson-content">
@@ -239,7 +260,7 @@ export function TerminalWizard() {
           </div>
           <nav>
             {lessons.map((lesson) => {
-              const complete = isComplete(progress, lesson.id, lesson.commands.length);
+              const complete = isLessonComplete(progress, lesson);
               return (
                 <button
                   className={`lesson-nav-item ${lesson.id === selectedLesson.id ? "active" : ""}`}
@@ -273,7 +294,7 @@ export function TerminalWizard() {
                   ) : (
                     <button className="text-button" onClick={() => void reconnect()} disabled={folderBusy}>Reconnect folder</button>
                   )}
-                  <button className="text-button muted" onClick={() => void forget()}>Forget folder</button>
+                  <button className="text-button muted" onClick={() => void forget()} disabled={folderBusy}>Forget folder</button>
                   {folder.staleSavedHandle ? (
                     <p className="folder-message" role="alert">This snapshot is session-only, but the browser could not clear an older saved folder. Use Forget folder, or clear this site’s stored data.</p>
                   ) : !folder.remembered ? (
@@ -320,9 +341,10 @@ export function TerminalWizard() {
             <WizardTerminal
               key={`${mode}:${folderRevision}`}
               ref={terminalRef}
+              lessonId={selectedLesson.id}
               mode={mode}
               files={folder?.permission === "granted" ? folder.files : {}}
-              onCommand={(command) => recordCommand(command, mode)}
+              onCommand={recordCommand}
             />
           </div>
 
@@ -334,8 +356,8 @@ export function TerminalWizard() {
                 <p>{selectedLesson.summary}</p>
               </div>
               <div className={`lesson-score ${lessonComplete ? "complete" : ""}`}>
-                <strong>{lessonComplete ? "Complete" : `${practicedCount}/${selectedLesson.commands.length}`}</strong>
-                <span>{lessonComplete ? "All moves practiced." : "commands practiced"}</span>
+                <strong>{lessonComplete ? "Complete" : `${practicedCount}/${requiredCommands.length}`}</strong>
+                <span>{lessonComplete ? "All required moves completed." : "successful required commands"}</span>
               </div>
             </div>
 
@@ -343,14 +365,20 @@ export function TerminalWizard() {
               <section aria-labelledby="try-title">
                 <div className="section-heading">
                   <div><span className="section-number">A</span><h3 id="try-title">Try these moves</h3></div>
-                  <span>Insert ≠ run</span>
+                  <span>Practice success earns progress</span>
                 </div>
                 <div className="command-list">
-                  {selectedLesson.commands.map((item, index) => {
-                    const practiced = lessonEntries.includes(String(index));
+                  {selectedLesson.commands.map((item) => {
+                    const practiced = lessonEntries.includes(item.id);
                     const requiredMode = item.mode ?? "either";
                     const available = requiredMode === "either" || requiredMode === mode;
-                    const accessLabel = requiredMode === "practice" ? "Practice lab" : requiredMode === "live" ? "Live only" : "Either mode";
+                    const accessLabel = item.required === false
+                      ? "Optional Live"
+                      : requiredMode === "practice"
+                        ? "Practice lab"
+                        : requiredMode === "live"
+                          ? "Live only"
+                          : "Practice for credit · Live to explore";
                     return (
                       <div className={`command-row ${practiced ? "practiced" : ""} ${available ? "" : "unavailable"}`} key={item.command}>
                         <div>
@@ -380,8 +408,8 @@ export function TerminalWizard() {
                 <ul>{selectedLesson.fieldNotes.map((note) => <li key={note}>{note}</li>)}</ul>
                 <div className={`master-status ${lessonComplete ? "complete" : ""}`} role="status">
                   {lessonComplete
-                    ? "✓ Every taught command was practiced"
-                    : `${selectedLesson.commands.length - practicedCount} command${selectedLesson.commands.length - practicedCount === 1 ? "" : "s"} left to complete this lesson`}
+                    ? "✓ Every required Practice command succeeded"
+                    : `${requiredCommands.length - practicedCount} required command${requiredCommands.length - practicedCount === 1 ? "" : "s"} left to complete this lesson`}
                 </div>
               </aside>
             </div>
