@@ -72,15 +72,15 @@ test("sets defense-in-depth document headers", async () => {
   assert.equal(response.headers.get("cache-control"), "no-store");
 });
 
-test("keeps the hosted shell loopback boundary closed", async () => {
+test("keeps hosted Live Mac disabled until a local companion pairing is present", async () => {
   const response = await renderHosted();
   const html = await response.text();
 
-  assert.match(html, /Live Mac \(local app only\)/);
+  assert.match(html, /Live Mac \(unavailable\)/);
   assert.doesNotMatch(html, /Open Live Mac/);
 });
 
-test("declares hosted headers that cannot reach the local Mac", async () => {
+test("allows only the fixed loopback companion through hosted headers", async () => {
   const configuration = JSON.parse(
     await readFile(new URL("../vercel.json", import.meta.url), "utf8"),
   );
@@ -89,10 +89,14 @@ test("declares hosted headers that cannot reach the local Mac", async () => {
   );
 
   assert.equal(configuration.outputDirectory, undefined);
-  assert.match(headers["content-security-policy"], /connect-src 'self'/);
-  assert.doesNotMatch(headers["content-security-policy"], /127\.0\.0\.1|localhost|ws:/);
+  assert.match(
+    headers["content-security-policy"],
+    /connect-src 'self' http:\/\/127\.0\.0\.1:4318 ws:\/\/127\.0\.0\.1:4318/,
+  );
+  assert.doesNotMatch(headers["content-security-policy"], /localhost|192\.168\.|127\.0\.0\.1:\*/);
   assert.match(headers["permissions-policy"], /local-network=\(\)/);
-  assert.match(headers["permissions-policy"], /loopback-network=\(\)/);
+  assert.match(headers["permissions-policy"], /loopback-network=\(self\)/);
+  assert.doesNotMatch(headers["permissions-policy"], /local-network-access/);
 });
 
 test("ships terminal parsers locally", async () => {

@@ -11,7 +11,7 @@
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self' http://127.0.0.1:4318 ws://127.0.0.1:4318; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
         },
         {
           "key": "Cross-Origin-Opener-Policy",
@@ -19,7 +19,7 @@
         },
         {
           "key": "Permissions-Policy",
-          "value": "local-network=(), loopback-network=(), local-network-access=()"
+          "value": "local-network=(), loopback-network=(self)"
         },
         {
           "key": "Referrer-Policy",

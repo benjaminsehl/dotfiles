@@ -12,15 +12,34 @@ The browser terminal is powered by
 `just-bash`. It teaches the declared toolchain in ten short lessons while
 keeping the default experience isolated from the Mac.
 
-## Run locally
+## Open the hosted tutor with Live Mac
 
 After applying the dotfiles, run:
+
+```bash
+terminal-wizard --hosted
+```
+
+This starts a one-shot companion on `127.0.0.1:4318`, waits until the exact
+process it launched is ready, and opens the canonical hosted tutor in Chrome
+(or the default browser when Chrome is unavailable). A fresh pairing secret is
+carried in the URL fragment, never sent to Vercel, and removed from the address
+bar by the app. The companion accepts only the canonical hosted Origin and exits
+after the paired Live Mac session. You must still type `LIVE` before a real
+shell starts.
+
+Vercel serves the interface; the browser talks directly to the loopback-only
+companion. Vercel never runs the shell or receives terminal traffic.
+
+## Run entirely locally
+
+To build and serve both the interface and companion from the checkout, run:
 
 ```bash
 terminal-wizard
 ```
 
-The launcher builds and serves the production-local app. Use
+The no-argument launcher builds and serves the production-local app. Use
 `terminal-wizard --dev` only while changing the app and you want hot reload.
 
 Or run development mode directly from the repository:
@@ -31,9 +50,8 @@ npm ci
 npm run dev
 ```
 
-Open <http://127.0.0.1:4317>. The fixed loopback origin is intentional: Chrome
-folder permissions, the one-time Live Mac ticket, and browser storage are all
-origin-bound.
+Open <http://127.0.0.1:4317>. The fixed local origin preserves a fully local
+development and recovery path alongside the hosted pairing flow.
 
 Production-local mode directly from the repository:
 
@@ -84,6 +102,7 @@ The bridge:
 
 - binds only to `127.0.0.1:4318`;
 - checks the exact browser Origin, HTTP Host, WebSocket path, and loopback peer;
+- requires a launcher-created, single-use pairing secret before minting a ticket;
 - mints a single-use 256-bit protocol ticket that expires after 30 seconds;
 - allows one active session, disables compression, caps messages and buffered
   output, and closes after 20 minutes without keyboard activity;
@@ -114,13 +133,13 @@ app. `scripts/audit.mjs` allows only those exact advisories and fails closed on
 errors, malformed reports, or anything new. Do not run `npm audit fix --force`;
 npm currently proposes a breaking vinext downgrade.
 
-## Hosted Practice and local Live Mac
+## Hosted Practice and paired Live Mac
 
 The hosted app includes the in-memory Practice terminal and optional read-only
 folder snapshots. It has no analytics, account, cloud sync, or remote shell
-endpoint. Live Mac is available only from the fixed loopback origin started by
-the local `terminal-wizard` launcher; the hosted app never exposes or connects
-to the PTY service.
+endpoint. Run `terminal-wizard --hosted` to open it with a one-time pairing for
+the loopback-only companion. Without that pairing, hosted Practice remains
+available and no request is made to the Mac.
 
 Progress is `localStorage`; a selected folder handle can be stored in IndexedDB
 and still requires the permission state Chrome grants. Use

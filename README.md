@@ -43,7 +43,7 @@ choose **Set Ghostty as Default Terminal App**.
 - `apply --dry-run` previews changes, `apply --check` verifies the setup, and `apply --update` intentionally advances declared tools.
 - `dev-doctor` checks Brewfile drift, symlinks, runtimes, Ghostty, Herdr, OMP/Codex safety and integrations, authentication, and sensitive file modes.
 - `configure-codex` safely applies Codex's on-request, auto-reviewed approval defaults without replacing the rest of its machine-local configuration.
-- `terminal-wizard` builds and starts the production-local interactive course; `terminal-wizard --dev` enables hot reload, and `terminal-wizard --check` runs its complete release gate.
+- `terminal-wizard --hosted` opens the deployed course with a one-time, loopback-only Live Mac companion; `terminal-wizard` keeps the production-local path, `--dev` enables hot reload, and `--check` runs the complete release gate.
 - `dev-update` updates the declared Homebrew set, refreshes exact mise pins, and synchronizes the teaching manifest from live command versions. Declaration changes make the repository dirty on purpose so they can be reviewed and committed.
 - `scripts/test` runs static checks, a secret scan, and a two-pass bootstrap test in an isolated temporary home.
 
@@ -64,10 +64,12 @@ text below `/workspace`; Live Mac requires typed consent before opening a real
 loopback-only zsh PTY.
 
 ```bash
-terminal-wizard
+terminal-wizard --hosted
 ```
 
-Then open <http://127.0.0.1:4317>. See
+The launcher opens the hosted tutor with a one-time local pairing. Run
+`terminal-wizard` without an option when you want the entire app served from
+<http://127.0.0.1:4317>. See
 [apps/terminal-wizard/README.md](apps/terminal-wizard/README.md) for the trust
 boundaries and full verification command.
 

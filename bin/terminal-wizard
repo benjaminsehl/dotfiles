@@ -16,8 +16,9 @@ usage() {
   cat <<'USAGE'
 Usage: terminal-wizard [option]
 
-Run the local, interactive course for this workstation.
+Run the interactive course for this workstation.
 
+  --hosted      Open the hosted course with a one-time Live Mac companion
   --dev          Run the development server with hot reload
   --production   Explicitly build and run the production-local server
   --check        Run the complete Terminal Tutor verification suite
@@ -32,6 +33,7 @@ USAGE
 mode=production
 case ${1:-} in
   "") ;;
+  --hosted) mode=hosted ;;
   --dev) mode=development ;;
   --production) mode=production ;;
   --check) mode=check ;;
@@ -64,6 +66,7 @@ fi
 
 cd "$APP_ROOT"
 case $mode in
+  hosted) exec npm run start:hosted ;;
   development) exec npm run dev ;;
   production)
     npm run build

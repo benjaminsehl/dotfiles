@@ -22,7 +22,11 @@ import {
   requiredLessonCommands,
   type LessonCommandResult,
 } from "@/app/lib/lesson-progress";
-import { supportsLiveMac } from "@/app/lib/live-origin";
+import {
+  consumeLiveMacAccess,
+  type HostedPairing,
+  type LiveMacAccess,
+} from "@/app/lib/live-origin";
 import {
   WizardTerminal,
   type TerminalMode,
@@ -34,8 +38,10 @@ export function TerminalWizard() {
   const [progress, setProgress] = useState<Progress>({});
   const [progressHydrated, setProgressHydrated] = useState(false);
   const [mode, setMode] = useState<TerminalMode>("practice");
-  const [liveAvailable, setLiveAvailable] = useState(false);
+  const [liveAccess, setLiveAccess] = useState<LiveMacAccess>({ kind: "unavailable", pairing: null });
+  const [activePairing, setActivePairing] = useState<HostedPairing | null>(null);
   const [liveDialogOpen, setLiveDialogOpen] = useState(false);
+  const [pairingHelpOpen, setPairingHelpOpen] = useState(false);
   const [livePhrase, setLivePhrase] = useState("");
   const [folder, setFolder] = useState<FolderSnapshot | null>(null);
   const [folderBusy, setFolderBusy] = useState(false);
@@ -48,6 +54,7 @@ export function TerminalWizard() {
   const [mobilePane, setMobilePane] = useState<"lesson" | "terminal">("lesson");
   const terminalRef = useRef<WizardTerminalHandle>(null);
   const liveInputRef = useRef<HTMLInputElement>(null);
+  const liveTriggerRef = useRef<HTMLButtonElement>(null);
   const lessonMenuRef = useRef<HTMLElement>(null);
   const lessonTriggerRef = useRef<HTMLButtonElement>(null);
   const folderPanelRef = useRef<HTMLElement>(null);
@@ -70,17 +77,23 @@ export function TerminalWizard() {
   const closeLiveDialog = useCallback(() => {
     setLiveDialogOpen(false);
     setLivePhrase("");
+    window.requestAnimationFrame(() => liveTriggerRef.current?.focus());
+  }, []);
+  const closePairingHelp = useCallback(() => {
+    setPairingHelpOpen(false);
+    window.requestAnimationFrame(() => liveTriggerRef.current?.focus());
   }, []);
 
   useEffect(() => {
     let active = true;
     const supported = supportsFileSystemAccess();
+    const detectedLiveAccess = consumeLiveMacAccess(window.location, window.history);
     const progressTimer = window.setTimeout(() => {
       if (!active) return;
+      setLiveAccess(detectedLiveAccess);
       setProgress(readProgress(window.localStorage));
       setProgressHydrated(true);
       setPickerSupported(supported);
-      setLiveAvailable(supportsLiveMac(window.location.origin));
     }, 0);
     if (!supported) {
       return () => {
@@ -129,6 +142,15 @@ export function TerminalWizard() {
       window.removeEventListener("keydown", closeOnEscape);
     };
   }, [closeLiveDialog, liveDialogOpen]);
+
+  useEffect(() => {
+    if (!pairingHelpOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closePairingHelp();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [closePairingHelp, pairingHelpOpen]);
 
   useEffect(() => {
     if (!lessonMenuOpen && !folderPanelOpen) return;
@@ -264,10 +286,25 @@ export function TerminalWizard() {
 
   const beginLive = () => {
     if (!liveAvailable || livePhrase !== "LIVE") return;
-    closeLiveDialog();
+    if (liveAccess.kind === "hosted") {
+      setActivePairing(liveAccess.pairing);
+      setLiveAccess({ kind: "hosted-unpaired", pairing: null });
+    } else {
+      setActivePairing(null);
+    }
+    setLiveDialogOpen(false);
+    setLivePhrase("");
     setMode("live");
     setMobilePane("terminal");
   };
+
+  const returnToPractice = () => {
+    setMode("practice");
+    setActivePairing(null);
+  };
+
+  const liveAvailable = liveAccess.kind === "local" || liveAccess.kind === "hosted" || mode === "live";
+  const pairedFromHostedPage = liveAccess.kind === "hosted" || activePairing !== null;
 
   const lessonEntries = progress[selectedLesson.id] ?? [];
   const selectedIndex = lessons.findIndex((lesson) => lesson.id === selectedLesson.id);
@@ -332,6 +369,12 @@ export function TerminalWizard() {
               : `Practice files: no folder connected${folderNeedsAttention ? ", attention needed" : ""}`;
 
   const openLiveDialog = () => {
+    if (liveAccess.kind === "hosted-unpaired") {
+      closeFolderPanel(false);
+      closeLessonMenu(false);
+      setPairingHelpOpen(true);
+      return;
+    }
     if (!liveAvailable) return;
     closeFolderPanel(false);
     closeLessonMenu(false);
@@ -502,18 +545,19 @@ export function TerminalWizard() {
                 <b>shell</b> / {mode === "practice" ? "sandbox" : "benjamin@mac"}
               </div>
               <div className="mode-switch" role="group" aria-label="Terminal access mode">
-                <button className={mode === "practice" ? "active" : ""} aria-pressed={mode === "practice"} onClick={() => setMode("practice")}>
+                <button className={mode === "practice" ? "active" : ""} aria-pressed={mode === "practice"} onClick={returnToPractice}>
                   <span className="shield-mark" aria-hidden="true">◇</span> Practice
                 </button>
                 <button
+                  ref={liveTriggerRef}
                   className={mode === "live" ? "live-active" : ""}
                   aria-pressed={mode === "live"}
-                  aria-label={liveAvailable ? "Live Mac" : "Live Mac (local app only)"}
-                  title={liveAvailable ? undefined : "Open the local Terminal Tutor launcher to use your real Mac shell"}
-                  disabled={!liveAvailable}
+                  aria-label={liveAvailable ? "Live Mac" : liveAccess.kind === "hosted-unpaired" ? "Pair Live Mac" : "Live Mac (unavailable)"}
+                  title={liveAvailable || liveAccess.kind === "hosted-unpaired" ? undefined : "Live Mac is available from the local app or a paired production page"}
+                  disabled={!liveAvailable && liveAccess.kind !== "hosted-unpaired"}
                   onClick={() => mode === "live" ? undefined : openLiveDialog()}
                 >
-                  <span aria-hidden="true">●</span> Live Mac{liveAvailable ? "" : " · Local only"}
+                  <span aria-hidden="true">●</span> Live Mac{liveAvailable ? "" : liveAccess.kind === "hosted-unpaired" ? " · Pair first" : " · Unavailable"}
                 </button>
               </div>
               <div className="terminal-tools">
@@ -554,6 +598,8 @@ export function TerminalWizard() {
               ref={terminalRef}
               lessonId={selectedLesson.id}
               mode={mode}
+              pairing={activePairing}
+              onPairingConsumed={() => setActivePairing(null)}
               files={folder?.permission === "granted" ? folder.files : {}}
               onCommand={recordCommand}
             />
@@ -674,6 +720,7 @@ export function TerminalWizard() {
             </p>
             <ul>
               <li>Bound to 127.0.0.1 only</li>
+              {pairedFromHostedPage ? <li>Terminal traffic stays between this browser and your Mac; Vercel never receives it</li> : null}
               <li>One browser session and one-time 30-second ticket</li>
               <li>No automatic command execution from lessons</li>
               <li>Closes after 20 minutes without keyboard activity</li>
@@ -690,6 +737,23 @@ export function TerminalWizard() {
             <div className="dialog-actions">
               <button className="secondary-button" onClick={closeLiveDialog}>Stay in Practice</button>
               <button className="danger-button" disabled={livePhrase !== "LIVE"} onClick={beginLive}>Open Live Mac</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {pairingHelpOpen ? (
+        <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && closePairingHelp()}>
+          <section className="live-dialog pairing-dialog" role="dialog" aria-modal="true" aria-labelledby="pairing-dialog-title">
+            <button className="dialog-close" onClick={closePairingHelp} aria-label="Close Live Mac pairing instructions">×</button>
+            <span className="danger-orbit pairing-orbit" aria-hidden="true">↯</span>
+            <p className="eyebrow">Vercel UI · local shell</p>
+            <h2 id="pairing-dialog-title">Pair this Mac first.</h2>
+            <p>Run this in Ghostty. It starts a five-minute, one-shot companion and opens a fresh paired page in Chrome:</p>
+            <pre className="pairing-command"><code>terminal-wizard --hosted</code></pre>
+            <p>Your terminal traffic stays between Chrome and <code>127.0.0.1</code>. Vercel never receives the pairing secret, keystrokes, or shell output.</p>
+            <div className="dialog-actions">
+              <button className="secondary-button" onClick={closePairingHelp}>Back to Practice</button>
             </div>
           </section>
         </div>
