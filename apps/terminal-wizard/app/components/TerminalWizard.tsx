@@ -349,8 +349,8 @@ export function TerminalWizard() {
 
       <header className="tutorial-chrome" aria-label="Terminal Tutor controls">
         <a className="brand" href="#lesson-content" aria-label="Terminal Tutor">
-          <span className="brand-mark" aria-hidden="true">❯_</span>
-          <span>Terminal Tutor</span>
+          <span className="brand-mark" aria-hidden="true">&gt;_</span>
+          <span>terminal tutor</span>
         </a>
         <nav className="course-controls" aria-label="Lesson navigation">
           <button
@@ -362,7 +362,7 @@ export function TerminalWizard() {
             aria-controls="lesson-picker"
             aria-haspopup="dialog"
           >
-            <span aria-hidden="true">☰</span>
+            <span aria-hidden="true">≡</span>
             <span className="sr-only">Choose lesson</span>
           </button>
           <button
@@ -415,6 +415,10 @@ export function TerminalWizard() {
 
       <main className={`tutorial-workspace show-${mobilePane}`}>
         <article className="lesson-pane" id="lesson-content" ref={lessonPanelRef} tabIndex={-1}>
+          <div className="pane-titlebar" aria-hidden="true">
+            <span><b>lesson</b> / {selectedLesson.number.padStart(2, "0")}</span>
+            <span>{selectedLesson.level} · {selectedLesson.minutes}m</span>
+          </div>
           <div className="lesson-pane-inner">
             <header className="lesson-intro">
               <p className="eyebrow">Lesson {selectedLesson.number} · {selectedLesson.kicker}</p>
@@ -494,6 +498,9 @@ export function TerminalWizard() {
         <section className="terminal-pane" id="terminal-workspace" aria-label="Terminal workspace" tabIndex={-1}>
           <div className="terminal-card">
             <div className="terminal-toolbar">
+              <div className="terminal-pane-title" aria-hidden="true">
+                <b>shell</b> / {mode === "practice" ? "sandbox" : "benjamin@mac"}
+              </div>
               <div className="mode-switch" role="group" aria-label="Terminal access mode">
                 <button className={mode === "practice" ? "active" : ""} aria-pressed={mode === "practice"} onClick={() => setMode("practice")}>
                   <span className="shield-mark" aria-hidden="true">◇</span> Practice

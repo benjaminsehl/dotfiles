@@ -39,6 +39,7 @@ test("server-renders the compact Terminal Tutor learning shell", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>Terminal Tutor · Own your Mac CLI<\/title>/i);
+  assert.match(html, /og-terminal-tutor\.png/);
   assert.match(html, /aria-label="Terminal Tutor"/);
   assert.match(html, /aria-label="Lesson navigation"/);
   assert.match(html, /Choose lesson/);

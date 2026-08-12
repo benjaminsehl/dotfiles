@@ -136,7 +136,7 @@ the remembered handle and browser-level permission.
 - Vite 8.2.1 / vinext 1.0.0-beta.5
 - `node-pty` 1.1.0 / `ws` 8.21.3
 
-The generated social card is project-local at `public/og.png`; runtime fonts,
+The generated social card is project-local at `public/og-terminal-tutor.png`; runtime fonts,
 WASM, CSS, and scripts are all served locally.
 
 Redistributed WASM attribution and complete license texts are in

@@ -12,7 +12,13 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Terminal Tutor",
     description: "Own your terminal. Practice safely in the browser, then graduate to the local Mac app.",
-    images: ["/og.png"],
+    images: [{ url: "/og-terminal-tutor.png", width: 1731, height: 909, alt: "Terminal Tutor lesson and terminal panes" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Terminal Tutor",
+    description: "Learn your Mac CLI by using it.",
+    images: ["/og-terminal-tutor.png"],
   },
 };
 

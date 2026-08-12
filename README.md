@@ -55,7 +55,7 @@ Codex and OMP have intentionally separate safety defaults. See
 
 ## Terminal Tutor
 
-![Terminal Tutor social card](apps/terminal-wizard/public/og.png)
+![Terminal Tutor social card](apps/terminal-wizard/public/og-terminal-tutor.png)
 
 The repository includes a local, interactive course backed by wterm and the
 same `manifest/setup.json` that declares the workstation. Practice runs in an
