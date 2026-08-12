@@ -11,6 +11,11 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    environmentOptions: {
+      jsdom: {
+        url: "http://127.0.0.1:4317/",
+      },
+    },
     include: ["tests/component/**/*.test.tsx"],
     restoreMocks: true,
     clearMocks: true,

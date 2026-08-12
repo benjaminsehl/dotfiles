@@ -114,11 +114,16 @@ app. `scripts/audit.mjs` allows only those exact advisories and fails closed on
 errors, malformed reports, or anything new. Do not run `npm audit fix --force`;
 npm currently proposes a breaking vinext downgrade.
 
-## Local-only by design
+## Hosted Practice and local Live Mac
 
-There is no analytics, account, cloud sync, remote shell endpoint, or hosted
-deployment. Progress is `localStorage`; a selected folder handle can be stored
-in IndexedDB and still requires the permission state Chrome grants. Use
+The hosted app includes the in-memory Practice terminal and optional read-only
+folder snapshots. It has no analytics, account, cloud sync, or remote shell
+endpoint. Live Mac is available only from the fixed loopback origin started by
+the local `terminal-wizard` launcher; the hosted app never exposes or connects
+to the PTY service.
+
+Progress is `localStorage`; a selected folder handle can be stored in IndexedDB
+and still requires the permission state Chrome grants. Use
 “Forget folder” in the app and Chrome site settings when you want to remove both
 the remembered handle and browser-level permission.
 

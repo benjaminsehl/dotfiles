@@ -14,6 +14,24 @@ async function render() {
   );
 }
 
+async function renderHosted() {
+  const previousVercelUrl = process.env.VERCEL_URL;
+  process.env.VERCEL_URL = "terminal-tutor.example.vercel.app";
+  try {
+    const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+    workerUrl.searchParams.set("hosted-test", `${process.pid}-${Date.now()}`);
+    const { default: worker } = await import(workerUrl.href);
+    return worker.fetch(
+      new Request("https://terminal-tutor.example.vercel.app/", { headers: { accept: "text/html" } }),
+      { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
+      { waitUntil() {}, passThroughOnException() {} },
+    );
+  } finally {
+    if (previousVercelUrl === undefined) delete process.env.VERCEL_URL;
+    else process.env.VERCEL_URL = previousVercelUrl;
+  }
+}
+
 test("server-renders the compact Terminal Tutor learning shell", async () => {
   const response = await render();
   assert.equal(response.status, 200);
@@ -51,6 +69,29 @@ test("sets defense-in-depth document headers", async () => {
   assert.equal(response.headers.get("cross-origin-opener-policy"), "same-origin");
   assert.equal(response.headers.get("referrer-policy"), "no-referrer");
   assert.equal(response.headers.get("cache-control"), "no-store");
+});
+
+test("keeps the hosted shell loopback boundary closed", async () => {
+  const response = await renderHosted();
+  const html = await response.text();
+
+  assert.match(html, /Live Mac \(local app only\)/);
+  assert.doesNotMatch(html, /Open Live Mac/);
+});
+
+test("declares hosted headers that cannot reach the local Mac", async () => {
+  const configuration = JSON.parse(
+    await readFile(new URL("../vercel.json", import.meta.url), "utf8"),
+  );
+  const headers = Object.fromEntries(
+    configuration.headers[0].headers.map(({ key, value }) => [key.toLowerCase(), value]),
+  );
+
+  assert.equal(configuration.outputDirectory, undefined);
+  assert.match(headers["content-security-policy"], /connect-src 'self'/);
+  assert.doesNotMatch(headers["content-security-policy"], /127\.0\.0\.1|localhost|ws:/);
+  assert.match(headers["permissions-policy"], /local-network=\(\)/);
+  assert.match(headers["permissions-policy"], /loopback-network=\(\)/);
 });
 
 test("ships terminal parsers locally", async () => {

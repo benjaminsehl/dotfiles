@@ -22,6 +22,7 @@ import {
   requiredLessonCommands,
   type LessonCommandResult,
 } from "@/app/lib/lesson-progress";
+import { supportsLiveMac } from "@/app/lib/live-origin";
 import {
   WizardTerminal,
   type TerminalMode,
@@ -33,6 +34,7 @@ export function TerminalWizard() {
   const [progress, setProgress] = useState<Progress>({});
   const [progressHydrated, setProgressHydrated] = useState(false);
   const [mode, setMode] = useState<TerminalMode>("practice");
+  const [liveAvailable, setLiveAvailable] = useState(false);
   const [liveDialogOpen, setLiveDialogOpen] = useState(false);
   const [livePhrase, setLivePhrase] = useState("");
   const [folder, setFolder] = useState<FolderSnapshot | null>(null);
@@ -78,6 +80,7 @@ export function TerminalWizard() {
       setProgress(readProgress(window.localStorage));
       setProgressHydrated(true);
       setPickerSupported(supported);
+      setLiveAvailable(supportsLiveMac(window.location.origin));
     }, 0);
     if (!supported) {
       return () => {
@@ -260,7 +263,7 @@ export function TerminalWizard() {
   };
 
   const beginLive = () => {
-    if (livePhrase !== "LIVE") return;
+    if (!liveAvailable || livePhrase !== "LIVE") return;
     closeLiveDialog();
     setMode("live");
     setMobilePane("terminal");
@@ -329,6 +332,7 @@ export function TerminalWizard() {
               : `Practice files: no folder connected${folderNeedsAttention ? ", attention needed" : ""}`;
 
   const openLiveDialog = () => {
+    if (!liveAvailable) return;
     closeFolderPanel(false);
     closeLessonMenu(false);
     setLiveDialogOpen(true);
@@ -494,8 +498,15 @@ export function TerminalWizard() {
                 <button className={mode === "practice" ? "active" : ""} aria-pressed={mode === "practice"} onClick={() => setMode("practice")}>
                   <span className="shield-mark" aria-hidden="true">◇</span> Practice
                 </button>
-                <button className={mode === "live" ? "live-active" : ""} aria-pressed={mode === "live"} onClick={() => mode === "live" ? undefined : openLiveDialog()}>
-                  <span aria-hidden="true">●</span> Live Mac
+                <button
+                  className={mode === "live" ? "live-active" : ""}
+                  aria-pressed={mode === "live"}
+                  aria-label={liveAvailable ? "Live Mac" : "Live Mac (local app only)"}
+                  title={liveAvailable ? undefined : "Open the local Terminal Tutor launcher to use your real Mac shell"}
+                  disabled={!liveAvailable}
+                  onClick={() => mode === "live" ? undefined : openLiveDialog()}
+                >
+                  <span aria-hidden="true">●</span> Live Mac{liveAvailable ? "" : " · Local only"}
                 </button>
               </div>
               <div className="terminal-tools">
@@ -555,7 +566,7 @@ export function TerminalWizard() {
                     <div><span className="popover-icon" aria-hidden="true">⌁</span><div><p>Read-only workspace</p><h2 id="folder-title">Practice files</h2></div></div>
                     <button type="button" onClick={() => closeFolderPanel()} aria-label="Close Practice files">×</button>
                   </div>
-                  <p className="folder-description" id="folder-description">A point-in-time copy is mounted at <code>/workspace</code> in Practice. Live Mac never uses this snapshot.</p>
+                  <p className="folder-description" id="folder-description">A point-in-time copy is mounted at <code>/workspace</code> in Practice. Files are processed only in this browser and never uploaded. Live Mac never uses this snapshot.</p>
                   {folder ? (
                     <div className="folder-details">
                       <p><strong>{folder.label}</strong><span>{folder.fileCount} safe text files · {folder.blockedCount} excluded or protected</span></p>
