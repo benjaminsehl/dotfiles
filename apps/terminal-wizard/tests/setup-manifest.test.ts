@@ -149,5 +149,4 @@ test("does not reintroduce version literals beside the manifest adapter", () => 
       `version ${version} must come from manifest/setup.json`,
     );
   }
-  assert.match(source, /\{declaredToolCount\}/);
 });

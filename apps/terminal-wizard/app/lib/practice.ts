@@ -31,7 +31,7 @@ const practiceRuntimeIds = ["node", "pnpm", "bun", "go", "python"] as const;
 export const PRACTICE_ROOT = "/home/benjamin/Sites/dotfiles";
 
 export const practiceDoctorOutput = `Developer workstation declaration (practice model)
-✓ expected clean zsh login; no Fig hooks
+✓ expected clean zsh login
 ✓ declared Homebrew set represented
 ✓ declared Ghostty and mise configuration represented
 ✓ OMP approval mode target: ${setupSafety.approvalMode}

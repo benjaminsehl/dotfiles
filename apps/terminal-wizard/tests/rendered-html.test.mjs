@@ -14,19 +14,24 @@ async function render() {
   );
 }
 
-test("server-renders the complete Terminal Wizard shell", async () => {
+test("server-renders the compact Terminal Wizard learning shell", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
   assert.match(html, /<title>Terminal Wizard · Own your Mac CLI<\/title>/i);
-  assert.match(html, /Own your terminal\./);
+  assert.match(html, /Terminal Wizard home/);
+  assert.match(html, /aria-label="Lesson navigation"/);
+  assert.match(html, /Choose lesson/);
+  assert.match(html, /aria-label="Previous lesson(?::[^"]+)?"/);
+  assert.match(html, /aria-label="Next lesson(?::[^"]+)?"/);
   assert.match(html, /Know what is actually running/);
   assert.match(html, /Practice/);
   assert.match(html, /Live Mac/);
-  assert.match(html, /Real files, safe shell/);
-  assert.match(html, /Powered by wterm/);
+  assert.match(html, /aria-label="Terminal workspace"/);
+  assert.match(html, /aria-controls="folder-panel"[^>]*aria-haspopup="dialog"/);
+  assert.match(html, /aria-label="Practice files:/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/i);
   assert.doesNotMatch(html, /fonts\.googleapis|googletagmanager|segment\.com/i);
 });

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const fileSystem = vi.hoisted(() => ({
@@ -48,6 +48,7 @@ vi.mock("@/app/components/WizardTerminal", async () => {
         <div
           data-testid="fake-terminal"
           data-instance={instance}
+          data-lesson-id={props.lessonId}
           data-mode={props.mode}
           data-files={Object.keys(props.files ?? {}).sort().join(",")}
         >
@@ -130,6 +131,27 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+async function waitForHydration() {
+  await screen.findByLabelText("0 of 10 lessons complete");
+  return screen.findByRole("button", { name: /^Practice files: (?!checking folder access)/ });
+}
+
+async function openFolderDialog(
+  user: ReturnType<typeof userEvent.setup>,
+) {
+  const trigger = await screen.findByRole("button", { name: /^Practice files:/ });
+  await user.click(trigger);
+  const dialog = await screen.findByRole("dialog", { name: "Practice files" });
+  return { dialog, trigger };
+}
+
+async function openLessonDialog(user: ReturnType<typeof userEvent.setup>) {
+  const trigger = screen.getByRole("button", { name: "Choose lesson" });
+  await user.click(trigger);
+  const dialog = await screen.findByRole("dialog", { name: "Jump to a lesson" });
+  return { dialog, trigger };
+}
+
 beforeEach(() => {
   window.localStorage.clear();
   terminal.insertCommand.mockReset();
@@ -140,6 +162,11 @@ beforeEach(() => {
   fileSystem.connectFolder.mockResolvedValue(snapshot());
   fileSystem.reconnectFolder.mockResolvedValue(snapshot());
   fileSystem.forgetFolder.mockResolvedValue(undefined);
+  Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+    configurable: true,
+    writable: true,
+    value: vi.fn(),
+  });
 });
 
 afterEach(() => {
@@ -155,12 +182,14 @@ describe("Terminal Wizard client journey", () => {
     const user = userEvent.setup();
     render(<TerminalWizard />);
 
-    await user.click(await screen.findByRole("button", { name: "Choose folder" }));
-    await screen.findByText(/new-project/);
+    await waitForHydration();
+    const { dialog } = await openFolderDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: "Choose project folder" }));
+    await within(dialog).findByText(/new-project/);
     restore.resolve(snapshot({ label: "old-project" }));
 
     await waitFor(() => expect(screen.queryByText(/old-project/)).toBeNull());
-    expect(screen.getByText(/new-project/)).toBeTruthy();
+    expect(within(dialog).getByText(/new-project/)).toBeTruthy();
   });
 
   it.each([
@@ -181,21 +210,22 @@ describe("Terminal Wizard client journey", () => {
     fileSystem.connectFolder.mockReturnValue(choose.promise);
     const user = userEvent.setup();
     render(<TerminalWizard />);
-    await screen.findByText(/0\/10/);
+    await waitForHydration();
     const firstInstance = screen.getByTestId("fake-terminal").getAttribute("data-instance");
 
-    await user.click(await screen.findByRole("button", { name: "Choose folder" }));
+    const { dialog } = await openFolderDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: "Choose project folder" }));
     restore.resolve(snapshot({
       label: "saved-project",
       files: { "/workspace/saved.md": "saved\n" },
     }));
     choose.reject(error);
 
-    await screen.findByText(/saved-project/);
+    await within(dialog).findByText(/saved-project/);
     expect(screen.getByTestId("fake-terminal").getAttribute("data-files")).toBe("/workspace/saved.md");
     expect(screen.getByTestId("fake-terminal").getAttribute("data-instance")).not.toBe(firstInstance);
     if (message) {
-      expect(await screen.findByText(message)).toBeTruthy();
+      expect(await within(dialog).findByText(message)).toBeTruthy();
     } else {
       expect(screen.queryByText(/Picker cancelled/)).toBeNull();
     }
@@ -205,7 +235,7 @@ describe("Terminal Wizard client journey", () => {
     const restore = deferred<Snapshot | null>();
     fileSystem.restoreFolder.mockReturnValue(restore.promise);
     render(<TerminalWizard />);
-    await screen.findByText(/0\/10/);
+    await waitForHydration();
     const firstInstance = screen.getByTestId("fake-terminal").getAttribute("data-instance");
 
     restore.resolve(snapshot({
@@ -213,7 +243,7 @@ describe("Terminal Wizard client journey", () => {
       files: { "/workspace/restored.md": "restored\n" },
     }));
 
-    await screen.findByText(/restored-project/);
+    await screen.findByRole("button", { name: /^Practice files: restored-project,/ });
     await waitFor(() => {
       expect(screen.getByTestId("fake-terminal").getAttribute("data-instance")).not.toBe(firstInstance);
     });
@@ -225,9 +255,15 @@ describe("Terminal Wizard client journey", () => {
       permission: "prompt",
       files: { "/workspace/should-not-mount.txt": "private\n" },
     }));
+    const user = userEvent.setup();
     render(<TerminalWizard />);
+    const firstInstance = screen.getByTestId("fake-terminal").getAttribute("data-instance");
+    await waitFor(() => {
+      expect(screen.getByTestId("fake-terminal").getAttribute("data-instance")).not.toBe(firstInstance);
+    });
 
-    await screen.findByRole("button", { name: "Reconnect folder" });
+    const { dialog } = await openFolderDialog(user);
+    expect(within(dialog).getByRole("button", { name: "Reconnect folder" })).toBeTruthy();
     expect(screen.getByTestId("fake-terminal").getAttribute("data-files")).toBe("");
   });
 
@@ -238,16 +274,17 @@ describe("Terminal Wizard client journey", () => {
     const user = userEvent.setup();
     render(<TerminalWizard />);
 
-    await screen.findByText(/dotfiles/);
+    await screen.findByRole("button", { name: /^Practice files: dotfiles,/ });
     const firstInstance = screen.getByTestId("fake-terminal").getAttribute("data-instance");
-    await user.click(screen.getByRole("button", { name: "Refresh snapshot" }));
-    expect((screen.getByRole("button", { name: "Forget folder" }) as HTMLButtonElement).disabled).toBe(true);
+    const { dialog } = await openFolderDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: "Refresh Practice snapshot" }));
+    expect((within(dialog).getByRole("button", { name: "Forget folder" }) as HTMLButtonElement).disabled).toBe(true);
     refresh.resolve(snapshot({
       label: "refreshed-project",
       files: { "/workspace/new.md": "fresh\n" },
     }));
 
-    await screen.findByText(/refreshed-project/);
+    await within(dialog).findByText(/refreshed-project/);
     expect(screen.getByTestId("fake-terminal").getAttribute("data-files")).toBe("/workspace/new.md");
     expect(screen.getByTestId("fake-terminal").getAttribute("data-instance")).not.toBe(firstInstance);
   });
@@ -264,13 +301,18 @@ describe("Terminal Wizard client journey", () => {
     }));
     const user = userEvent.setup();
     render(<TerminalWizard />);
+    const firstInstance = screen.getByTestId("fake-terminal").getAttribute("data-instance");
+    await waitFor(() => {
+      expect(screen.getByTestId("fake-terminal").getAttribute("data-instance")).not.toBe(firstInstance);
+    });
 
-    await user.click(await screen.findByRole("button", { name: "Reconnect folder" }));
+    const { dialog } = await openFolderDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: "Reconnect folder" }));
 
-    await screen.findByText(message);
-    expect(screen.queryByText(/Snapshot refreshed/)).toBeNull();
+    await within(dialog).findByText(message);
+    expect(within(dialog).queryByText(/Snapshot refreshed/)).toBeNull();
     expect(screen.getByTestId("fake-terminal").getAttribute("data-files")).toBe("");
-    expect(screen.getByRole("button", { name: "Reconnect folder" })).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Reconnect folder" })).toBeTruthy();
   });
 
   it("forgets the mounted snapshot and remounts an empty terminal", async () => {
@@ -280,13 +322,16 @@ describe("Terminal Wizard client journey", () => {
     const user = userEvent.setup();
     render(<TerminalWizard />);
 
-    await screen.findByText(/dotfiles/);
+    await screen.findByRole("button", { name: /^Practice files: dotfiles,/ });
     const firstInstance = screen.getByTestId("fake-terminal").getAttribute("data-instance");
     expect(screen.getByTestId("fake-terminal").getAttribute("data-files")).toBe("/workspace/forget-me.md");
-    await user.click(screen.getByRole("button", { name: "Forget folder" }));
+    const { dialog } = await openFolderDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: "Forget folder" }));
 
-    await screen.findByRole("button", { name: "Choose folder" });
-    expect(screen.getByText(/Folder forgotten here/)).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Practice files" })).toBeNull());
+    const reopened = await openFolderDialog(user);
+    await within(reopened.dialog).findByRole("button", { name: "Choose project folder" });
+    expect(within(reopened.dialog).getByText(/Folder forgotten here/)).toBeTruthy();
     expect(screen.getByTestId("fake-terminal").getAttribute("data-files")).toBe("");
     expect(screen.getByTestId("fake-terminal").getAttribute("data-instance")).not.toBe(firstInstance);
   });
@@ -299,15 +344,16 @@ describe("Terminal Wizard client journey", () => {
     const user = userEvent.setup();
     render(<TerminalWizard />);
 
-    await screen.findByText(/dotfiles/);
+    await screen.findByRole("button", { name: /^Practice files: dotfiles,/ });
     const firstInstance = screen.getByTestId("fake-terminal").getAttribute("data-instance");
-    await user.click(screen.getByRole("button", { name: "Forget folder" }));
+    const { dialog } = await openFolderDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: "Forget folder" }));
 
-    await screen.findByText(/could not forget the saved folder/);
-    expect(screen.getByText(/dotfiles/)).toBeTruthy();
+    await within(dialog).findByText(/could not forget the saved folder/);
+    expect(within(dialog).getByText(/dotfiles/)).toBeTruthy();
     expect(screen.getByTestId("fake-terminal").getAttribute("data-files")).toBe("/workspace/retained.md");
     expect(screen.getByTestId("fake-terminal").getAttribute("data-instance")).toBe(firstInstance);
-    expect((screen.getByRole("button", { name: "Forget folder" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((within(dialog).getByRole("button", { name: "Forget folder" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it.each([
@@ -328,15 +374,105 @@ describe("Terminal Wizard client journey", () => {
     },
   ])("shows the $state disclosure", async ({ overrides, message }) => {
     fileSystem.restoreFolder.mockResolvedValue(snapshot(overrides));
+    const user = userEvent.setup();
     render(<TerminalWizard />);
 
-    expect(await screen.findByText(message)).toBeTruthy();
+    await screen.findByRole("button", { name: /^Practice files: dotfiles,/ });
+    const { dialog } = await openFolderDialog(user);
+    expect(await within(dialog).findByText(message)).toBeTruthy();
+  });
+
+  it("opens each compact dialog and restores trigger focus on Escape", async () => {
+    const user = userEvent.setup();
+    render(<TerminalWizard />);
+    await waitForHydration();
+
+    expect(screen.getAllByRole("button", { name: "Choose lesson" })).toHaveLength(1);
+    const lesson = await openLessonDialog(user);
+    expect(lesson.trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(within(lesson.dialog).getByRole("button", { name: /Know what is actually running/ }).getAttribute("aria-current")).toBe("step");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Jump to a lesson" })).toBeNull());
+    expect(lesson.trigger.getAttribute("aria-expanded")).toBe("false");
+    await waitFor(() => expect(document.activeElement).toBe(lesson.trigger));
+
+    const folder = await openFolderDialog(user);
+    expect(folder.trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(within(folder.dialog).getByRole("button", { name: "Choose project folder" })).toBeTruthy();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Practice files" })).toBeNull());
+    expect(folder.trigger.getAttribute("aria-expanded")).toBe("false");
+    await waitFor(() => expect(document.activeElement).toBe(folder.trigger));
+  });
+
+  it("selects lessons from the picker", async () => {
+    const user = userEvent.setup();
+    render(<TerminalWizard />);
+    await waitForHydration();
+
+    const { dialog } = await openLessonDialog(user);
+    const course = within(dialog).getByRole("navigation", { name: "Course lessons" });
+    expect(within(course).getAllByRole("button")).toHaveLength(10);
+    await user.click(within(dialog).getByRole("button", { name: /Practice on a real project, safely/ }));
+
+    await screen.findByRole("heading", { level: 1, name: "Practice on a real project, safely" });
+    expect(screen.queryByRole("dialog", { name: "Jump to a lesson" })).toBeNull();
+    expect(screen.getByTestId("fake-terminal").getAttribute("data-lesson-id")).toBe("real-work");
+    expect(screen.getByLabelText("Current lesson: Practice on a real project, safely")).toBeTruthy();
+  });
+
+  it("moves through lessons with Previous and Next and respects boundaries", async () => {
+    const user = userEvent.setup();
+    render(<TerminalWizard />);
+    await waitForHydration();
+
+    const previous = screen.getByRole("button", { name: /^Previous lesson/ }) as HTMLButtonElement;
+    const next = screen.getByRole("button", { name: /^Next lesson/ }) as HTMLButtonElement;
+    expect(previous.disabled).toBe(true);
+    expect(next.disabled).toBe(false);
+    expect(screen.getByTestId("fake-terminal").getAttribute("data-lesson-id")).toBe("orientation");
+    const terminalInstance = screen.getByTestId("fake-terminal").getAttribute("data-instance");
+
+    await user.click(next);
+    await screen.findByRole("heading", { level: 1, name: "Navigate at thought speed" });
+    expect(previous.disabled).toBe(false);
+    expect(screen.getByTestId("fake-terminal").getAttribute("data-lesson-id")).toBe("navigation");
+    expect(screen.getByTestId("fake-terminal").getAttribute("data-instance")).toBe(terminalInstance);
+
+    const { dialog } = await openLessonDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: /Practice the branch-to-PR rhythm/ }));
+    await screen.findByRole("heading", { level: 1, name: "Practice the branch-to-PR rhythm" });
+    expect(next.disabled).toBe(true);
+    expect(previous.disabled).toBe(false);
+    expect(screen.getByTestId("fake-terminal").getAttribute("data-lesson-id")).toBe("checkpoint-lab");
+    expect(screen.getByTestId("fake-terminal").getAttribute("data-instance")).toBe(terminalInstance);
+  });
+
+  it("switches mobile panes without remounting and exposes terminal mode state", async () => {
+    const user = userEvent.setup();
+    render(<TerminalWizard />);
+    await waitForHydration();
+    const terminalInstance = screen.getByTestId("fake-terminal").getAttribute("data-instance");
+    const lessonPane = screen.getByRole("button", { name: "Lesson" });
+    const terminalPane = screen.getByRole("button", { name: "Terminal" });
+    const practice = screen.getByRole("button", { name: "Practice" });
+    const live = screen.getByRole("button", { name: "Live Mac" });
+
+    expect(lessonPane.getAttribute("aria-pressed")).toBe("true");
+    expect(terminalPane.getAttribute("aria-pressed")).toBe("false");
+    expect(practice.getAttribute("aria-pressed")).toBe("true");
+    expect(live.getAttribute("aria-pressed")).toBe("false");
+
+    await user.click(terminalPane);
+    expect(lessonPane.getAttribute("aria-pressed")).toBe("false");
+    expect(terminalPane.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("fake-terminal").getAttribute("data-instance")).toBe(terminalInstance);
   });
 
   it("requires fresh exact Live consent and remounts on each mode change", async () => {
     const user = userEvent.setup();
     render(<TerminalWizard />);
-    await screen.findByText(/0\/10/);
+    await waitForHydration();
     const firstInstance = screen.getByTestId("fake-terminal").getAttribute("data-instance");
 
     await user.click(screen.getByRole("button", { name: /Live Mac/ }));
@@ -359,28 +495,27 @@ describe("Terminal Wizard client journey", () => {
   it("inserts without credit and records only a successful terminal result", async () => {
     const user = userEvent.setup();
     render(<TerminalWizard />);
-    await screen.findByText(/0\/10/);
+    await waitForHydration();
     const insert = screen.getByRole("button", { name: "Insert pwd in the terminal without running it" });
-    const row = insert.closest(".command-row");
-    expect(row).toBeTruthy();
 
     await user.click(insert);
     expect(terminal.insertCommand).toHaveBeenCalledWith("pwd");
-    expect(row?.textContent).toContain("Insert");
+    expect(insert.textContent).toContain("Insert");
     fireEvent.click(screen.getByRole("button", { name: "emit pwd failure" }));
-    expect(row?.textContent).toContain("Insert");
+    expect(insert.textContent).toContain("Insert");
     fireEvent.click(screen.getByRole("button", { name: "emit pwd success" }));
 
-    await waitFor(() => expect(row?.textContent).toContain("Again"));
+    await waitFor(() => expect(insert.textContent).toContain("Again"));
     expect(window.localStorage.getItem("terminal-wizard.progress.v3")).toContain("step-");
   });
 
   it("credits an in-flight result to its submission lesson after navigation", async () => {
     const user = userEvent.setup();
     render(<TerminalWizard />);
-    await screen.findByText(/0\/10/);
+    await waitForHydration();
 
-    await user.click(screen.getByRole("button", { name: /Practice on a real project, safely/ }));
+    const { dialog } = await openLessonDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: /Practice on a real project, safely/ }));
     fireEvent.click(screen.getByRole("button", { name: "emit delayed maintenance result" }));
 
     await waitFor(() => {
