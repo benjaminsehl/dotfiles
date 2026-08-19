@@ -25,6 +25,7 @@ export const practiceVersionLines: Record<string, string> = {
   uv: `uv ${getSetupToolVersion("uv")}\n`,
   nvim: `NVIM v${getSetupToolVersion("nvim")}\n`,
   mise: `${getSetupToolVersion("mise")} macos-x64 (practice snapshot)\n`,
+  mo: `Mole version ${getSetupToolVersion("mole")}\n`,
 };
 
 const practiceRuntimeIds = ["node", "pnpm", "bun", "go", "python"] as const;
@@ -357,6 +358,17 @@ function ompResult(args: string[]): ExecResult {
   return ok(`OMP is not launched in Practice. Safety snapshot: approval mode ${setupSafety.approvalMode}; secret masking ${setupSafety.secretsEnabled ? "enabled" : "disabled"}.\n`);
 }
 
+function moleResult(args: string[]): ExecResult {
+  if (args[0] === "--version" || args[0] === "version") return ok(practiceVersionLines.mo);
+  if (args[0] === "status" && args.includes("--json")) {
+    return ok('{"health_score":92,"mode":"practice","mutated":false}\n');
+  }
+  if (args.includes("--dry-run")) {
+    return ok("Mole Practice preview: no files were changed. Review the real Mac output before confirming cleanup.\n");
+  }
+  return ok("Mole cleanup is simulated in Practice. Use `mo status` or a supported `--dry-run` before any real maintenance action.\n");
+}
+
 function doctorResult(): ExecResult {
   return ok(practiceDoctorOutput);
 }
@@ -383,6 +395,7 @@ export function registerPracticeCommands(shell: PracticeShell): void {
   }
   bash.registerCommand(defineCommand("uv", uvResult));
   bash.registerCommand(defineCommand("omp", async (args) => ompResult(args)));
+  bash.registerCommand(defineCommand("mo", async (args) => moleResult(args)));
   bash.registerCommand(defineCommand("mise", async (args) => miseResult(args)));
   bash.registerCommand(defineCommand("git", async (args) => gitResult(args, gitState)));
   bash.registerCommand(defineCommand("gh", async (args) => ghResult(args, gitState)));

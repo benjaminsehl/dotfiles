@@ -66,6 +66,9 @@ grep -Fq 'The launcher keeps only the small production runtime after each build,
 grep -Fq 'for the local UI and shell service, then opens Chrome.' <<<"$launcher_help"
 
 scripts/check-manifest
+brew bundle list --formula --file "$REPO_ROOT/Brewfile" | grep -Fxq mole
+git check-ignore -q -- config/mole/whitelist
+git check-ignore -q -- Library/Logs/mole/operations.log
 
 if command -v gitleaks >/dev/null 2>&1; then
   gitleaks dir --no-banner --redact .

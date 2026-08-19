@@ -44,6 +44,7 @@ choose **Set Ghostty as Default Terminal App**.
 - `dev-doctor` checks Brewfile drift, symlinks, runtimes, Ghostty, Herdr, OMP/Codex safety and integrations, authentication, and sensitive file modes.
 - `configure-codex` safely applies Codex's on-request, auto-reviewed approval defaults without replacing the rest of its machine-local configuration.
 - `terminal-tutor` opens the local course in Chrome with its loopback-only shell service; `--dev` enables hot reload, `--production` forces a rebuild, and `--check` runs the complete release gate.
+- `mo status` and `mo analyze` inspect Mac health and disk use; preview supported cleanup operations with `--dry-run` before confirming them.
 - `dev-update` updates the declared Homebrew set, refreshes exact mise pins and the full mise lock plus OMP's completion cache, and synchronizes the teaching manifest from live command versions. Declaration changes make the repository dirty on purpose so they can be reviewed and committed.
 - `scripts/test` runs static checks, a secret scan, and a two-pass bootstrap test in an isolated temporary home.
 

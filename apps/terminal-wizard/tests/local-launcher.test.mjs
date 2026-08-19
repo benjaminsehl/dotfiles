@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import {
   LOCAL_ORIGIN,
@@ -38,6 +42,19 @@ function healthyResponse(url) {
     });
   }
   throw new Error(`unexpected health URL: ${url}`);
+}
+
+function runChecked(command, args, options) {
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    ...options,
+  });
+  assert.equal(
+    result.status,
+    0,
+    `${command} ${args.join(" ")} failed:\n${result.stdout}${result.stderr}`,
+  );
+  return result;
 }
 
 test("builds least-privilege web and PTY environments", () => {
@@ -216,4 +233,97 @@ test("forwards an interrupt to both owned services", async () => {
   assert.equal(result, 130);
   assert.deepEqual(web.killedWith, ["SIGINT"]);
   assert.deepEqual(pty.killedWith, ["SIGINT"]);
+});
+
+test("installs dev dependencies despite production npm settings and rebuilds after a dirty source is reverted", async (t) => {
+  const fixture = await mkdtemp(join(tmpdir(), "terminal-tutor-launcher-"));
+  t.after(() => rm(fixture, { force: true, recursive: true }));
+
+  const repositoryRoot = join(fixture, "dotfiles");
+  const applicationRoot = join(repositoryRoot, "apps", "terminal-wizard");
+  const fakeBin = join(fixture, "bin");
+  const npmLog = join(fixture, "npm.log");
+  await mkdir(join(repositoryRoot, "bin"), { recursive: true });
+  await mkdir(join(applicationRoot, "src"), { recursive: true });
+  await mkdir(join(repositoryRoot, "manifest"), { recursive: true });
+  await mkdir(fakeBin, { recursive: true });
+  await copyFile(
+    new URL("../../../bin/terminal-tutor", import.meta.url),
+    join(repositoryRoot, "bin", "terminal-tutor"),
+  );
+  await chmod(join(repositoryRoot, "bin", "terminal-tutor"), 0o755);
+  await writeFile(join(applicationRoot, "package-lock.json"), "fixture-lock\n");
+  await writeFile(join(applicationRoot, "src", "input.ts"), "export const value = 1;\n");
+  await writeFile(join(repositoryRoot, "manifest", "setup.json"), "{}\n");
+  await writeFile(
+    join(repositoryRoot, ".gitignore"),
+    "apps/terminal-wizard/node_modules/\napps/terminal-wizard/dist/\n",
+  );
+
+  const fakeNpm = join(fakeBin, "npm");
+  await writeFile(fakeNpm, `#!/bin/sh
+set -eu
+printf '%s\\n' "$*" >> "$NPM_LOG"
+case "\${1:-} \${2:-}" in
+  "ci --include=dev")
+    mkdir -p node_modules/.bin node_modules/node-pty node_modules/ws
+    : > node_modules/.bin/vite
+    chmod 755 node_modules/.bin/vite
+    ;;
+  "ci --omit=dev")
+    mkdir -p node_modules/node-pty node_modules/ws
+    rm -f node_modules/.bin/vite
+    ;;
+  "run build")
+    test -x node_modules/.bin/vite
+    mkdir -p dist/server
+    printf '<!doctype html>\\n' > dist/index.html
+    printf 'export {};\\n' > dist/server/pty-server.mjs
+    ;;
+  "prune --omit=dev")
+    rm -f node_modules/.bin/vite
+    ;;
+  "run prepare:pty"|"start ") ;;
+  *) printf 'unexpected npm invocation: %s\\n' "$*" >&2; exit 64 ;;
+esac
+`);
+  await chmod(fakeNpm, 0o755);
+
+  runChecked("git", ["init", "-q"], { cwd: repositoryRoot });
+  runChecked("git", ["config", "user.name", "Terminal Tutor Test"], { cwd: repositoryRoot });
+  runChecked("git", ["config", "user.email", "terminal-tutor@example.invalid"], { cwd: repositoryRoot });
+  runChecked("git", ["add", "."], { cwd: repositoryRoot });
+  runChecked("git", ["commit", "-qm", "fixture"], { cwd: repositoryRoot });
+
+  const sourcePath = join(applicationRoot, "src", "input.ts");
+  await writeFile(sourcePath, "export const value = 2;\n");
+  const environment = {
+    ...process.env,
+    NODE_ENV: "production",
+    NPM_LOG: npmLog,
+    PATH: `${fakeBin}:${process.env.PATH}`,
+    npm_config_omit: "dev",
+  };
+  runChecked(join(repositoryRoot, "bin", "terminal-tutor"), [], {
+    cwd: repositoryRoot,
+    env: environment,
+  });
+
+  runChecked("git", ["restore", "apps/terminal-wizard/src/input.ts"], {
+    cwd: repositoryRoot,
+  });
+  runChecked(join(repositoryRoot, "bin", "terminal-tutor"), [], {
+    cwd: repositoryRoot,
+    env: environment,
+  });
+
+  const invocations = (await readFile(npmLog, "utf8")).trim().split("\n");
+  assert.equal(
+    invocations.filter((entry) => entry === "ci --include=dev").length,
+    2,
+  );
+  assert.equal(
+    invocations.filter((entry) => entry === "run build").length,
+    2,
+  );
 });

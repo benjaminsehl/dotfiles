@@ -40,6 +40,7 @@ const uvVersion = getSetupToolVersion("uv");
 const herdrVersion = getSetupToolVersion("herdr");
 const ompVersion = getSetupToolVersion("omp");
 const codexVersion = getSetupToolVersion("codex");
+const moleVersion = getSetupToolVersion("mole");
 const approvalModeTitle =
   setupSafety.approvalMode.charAt(0).toUpperCase() + setupSafety.approvalMode.slice(1);
 const orientationPath = getSetupLearningPath("terminal-orientation");
@@ -267,11 +268,17 @@ const lessonInputs: LessonInput[] = [
       { command: checkWorkflow.command, label: checkWorkflow.title, detail: checkWorkflow.purpose },
       { command: "git status --short", label: "Review generated pins", detail: "Updates become visible repo changes on purpose." },
       { command: "gitleaks detect --redact", label: "Scan before sharing", detail: "Catch credential-shaped content before a commit." },
+      {
+        command: "mo status --json | jq '.health_score'",
+        label: "Read Mac health",
+        detail: `Inspect Mole ${moleVersion}'s read-only health score without changing the machine.`,
+      },
     ],
     fieldNotes: [
       "The bootstrap uses an explicit allowlist and backs up conflicts; it never adopts your whole home directory.",
       `The normal \`${reconcileWorkflow.command}\` workflow ${reconcileWorkflow.purpose.toLowerCase()}.`,
       `Run \`${updateWorkflow.command}\` when you have time to review and test—not automatically on shell startup. It ${updateWorkflow.purpose.toLowerCase()}.`,
+      "Mole cleanup, uninstall, optimize, purge, installer cleanup, and removal can delete data. Preview supported operations with `--dry-run`, then review every confirmation.",
     ],
   },
   {

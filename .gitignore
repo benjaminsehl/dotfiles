@@ -17,3 +17,5 @@ config/docker/
 config/aws/
 config/ssh/
 config/gpg/
+config/mole/
+Library/Logs/mole/

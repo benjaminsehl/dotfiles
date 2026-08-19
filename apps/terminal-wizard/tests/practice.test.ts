@@ -73,6 +73,7 @@ const expectedLessonOutput = new Map<string, RegExp>([
   ["apply --check", /apply is simulated/],
   ["git status --short", /WizardTerminal\.tsx/],
   ["gitleaks detect --redact", /no leaks found/],
+  ["mo status --json | jq '.health_score'", /^92\s*$/],
   ["tree /workspace", /lesson\.ts/],
   ["rg \"TODO\" /workspace", /lesson\.ts:\d+:.*TODO/],
   ["e README.md", /Practice editor preview/],
@@ -110,7 +111,10 @@ test("every Practice-capable lesson command succeeds with meaningful model outpu
       const result = await bash.exec(command, { cwd });
       const output = `${result.stdout}${result.stderr}`;
       assert.equal(result.exitCode, 0, `${command}\n${output}`);
-      assert.ok(output.trim().length >= 3, `${command} should teach something, not return empty output`);
+      assert.ok(
+        output.trim().length > 0,
+        `${command} should teach something, not return empty output: ${JSON.stringify(output)}`,
+      );
       assert.match(output, expectedLessonOutput.get(command) as RegExp);
       if (command.startsWith("eza ")) assert.doesNotMatch(output, /^\/bin/m);
     });

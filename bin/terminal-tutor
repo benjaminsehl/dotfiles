@@ -75,7 +75,7 @@ ensure_full_dependencies() {
   if [[ ! -x $APP_ROOT/node_modules/.bin/vite ||
         $installed_lock != "$expected_lock" || $install_mode != full ]]; then
     printf 'Installing the complete Terminal Tutor build toolchain…\n'
-    (cd "$APP_ROOT" && npm ci)
+    (cd "$APP_ROOT" && npm ci --include=dev)
     write_install_state full
   fi
 }
@@ -126,7 +126,11 @@ case $mode in
           $built_revision != "$revision" ]]; then
       ensure_full_dependencies
       npm run build
-      printf '%s\n' "$revision" > "$BUILD_STAMP"
+      if ((source_dirty)); then
+        printf '%s:dirty\n' "$revision" > "$BUILD_STAMP"
+      else
+        printf '%s\n' "$revision" > "$BUILD_STAMP"
+      fi
     else
       ensure_runtime_dependencies
     fi

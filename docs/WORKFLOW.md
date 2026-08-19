@@ -59,6 +59,28 @@ version, and only then remove the old Homebrew formula. `dev-doctor` reports a
 duplicate installation until that one-time cleanup is complete; it never
 removes either copy itself.
 
+## Mole ownership and safe use
+
+Mole is installed and updated only through the Brewfile. The dotfiles do not
+invoke `mo update`, install a separate shell hook, or run maintenance during
+startup or bootstrap. Homebrew already provides completions for both `mole`
+and `mo`.
+
+Read the current health summary without changing anything:
+
+```bash
+mo status
+mo status --json | jq '.health_score'
+```
+
+`mo analyze` is interactive and lower-risk than direct cleanup, but confirmed
+selections are moved to Trash. Review every selection before confirming it.
+
+Cleanup, uninstall, optimize, purge, installer cleanup, and removal can change
+or delete local data. Preview supported actions first—for example,
+`mo clean --dry-run`—then review the targets and confirmation before
+proceeding. `mo history` shows Mole's local operation log.
+
 ## Fast shell vocabulary
 
 These short aliases are enabled only when their underlying tool exists:

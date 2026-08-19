@@ -64,6 +64,7 @@ test("derives every simulated version and safety status from the manifest", () =
     uv: "uv",
     nvim: "nvim",
     mise: "mise",
+    mo: "mole",
   };
 
   for (const [command, id] of Object.entries(commandToId)) {
@@ -125,6 +126,32 @@ test("turns every declared learning path, shortcut, alias, and workflow into cur
   for (const workflow of manifestOnDisk.workflows) {
     assert.match(curriculum, new RegExp(workflow.command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
+});
+
+test("keeps the Mole maintenance exercise aligned with the manifest", () => {
+  const mole = manifestOnDisk.tools.find((tool) => tool.id === "mole");
+  const maintenancePath = manifestOnDisk.learningPaths.find(
+    (path) => path.id === "maintain-the-machine",
+  );
+  const maintenanceLesson = lessons.find(
+    (lesson) => lesson.manifestPathId === maintenancePath?.id,
+  );
+  assert.ok(mole);
+  assert.equal(mole.command, "mo");
+  assert.ok(maintenancePath);
+  assert.ok(maintenancePath.tools.includes(mole.id));
+  assert.ok(maintenanceLesson);
+
+  const molePractice = maintenancePath.practice.find((entry) =>
+    entry.command.startsWith(`${mole.command} `),
+  );
+  assert.ok(molePractice);
+  assert.ok(
+    maintenanceLesson.commands.some(
+      (entry) => entry.command === molePractice.command,
+    ),
+    `lesson ${maintenanceLesson.id} must teach the manifest command: ${molePractice.command}`,
+  );
 });
 
 test("does not reintroduce version literals beside the manifest adapter", () => {

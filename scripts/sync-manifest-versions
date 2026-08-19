@@ -65,13 +65,14 @@ detect_version() {
     lazygit) extract_version lazygit --version ;;
     shellcheck) extract_version shellcheck --version ;;
     gitleaks) extract_version gitleaks version ;;
+    mole) extract_version mo --version ;;
     *) printf 'No version detector for manifest tool %s\n' "$1" >&2; return 1 ;;
   esac
 }
 
 versioned_ids=(
   ghostty starship herdr omp codex git gh mise node npm pnpm bun go python uv
-  nvim rg fd fzf bat eza zoxide direnv jq lazygit shellcheck gitleaks
+  nvim rg fd fzf bat eza zoxide direnv jq lazygit shellcheck gitleaks mole
 )
 
 working=$(mktemp "$REPO_ROOT/manifest/.setup-versions.XXXXXX")

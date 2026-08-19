@@ -42,6 +42,7 @@
     {"id":"lazygit","name":"lazygit","command":"lazygit","version":"0.64.0","category":"source-control","purpose":"Interactive Git interface"},
     {"id":"shellcheck","name":"ShellCheck","command":"shellcheck","version":"0.11.0","category":"quality","purpose":"Find shell-script mistakes"},
     {"id":"gitleaks","name":"Gitleaks","command":"gitleaks","version":"8.30.1","category":"security","purpose":"Prevent secrets from entering Git history"},
+    {"id":"mole","name":"Mole","command":"mo","version":"1.51.0","category":"maintenance","purpose":"Inspect Mac health and preview deliberate cleanup, uninstall, and disk-maintenance work"},
     {"id":"apply","name":"Apply","command":"apply","version":"dotfiles","category":"maintenance","purpose":"Reconcile the declared workstation state through one safe entry point"},
     {"id":"dev-doctor","name":"Developer doctor","command":"dev-doctor","version":"dotfiles","category":"maintenance","purpose":"Assert workstation health and security settings"},
     {"id":"dev-update","name":"Developer updater","command":"dev-update","version":"dotfiles","category":"maintenance","purpose":"Update only the declared toolchain and runtime pins"}
@@ -142,11 +143,12 @@
       "title":"Keep the setup healthy",
       "level":"intermediate",
       "minutes":10,
-      "tools":["apply","dev-doctor","dev-update","gitleaks"],
+      "tools":["apply","dev-doctor","dev-update","gitleaks","mole"],
       "outcomes":["Preview changes","Reconcile drift","Update intentionally","Prevent credential leaks"],
       "practice":[
         {"prompt":"Preview reconciliation","command":"apply --dry-run"},
         {"prompt":"Run all health checks","command":"apply --check"},
+        {"prompt":"Read the current Mac health score without changing anything","command":"mo status --json | jq '.health_score'"},
         {"prompt":"Update only declared tools","command":"apply --update"}
       ]
     }
@@ -159,13 +161,14 @@
     "networkAtShellStartup": false,
     "automaticGitPulls": false,
     "localOverrides": ["~/.zshrc.local", "~/.gitconfig.local"],
-    "neverTrack": ["credentials", "tokens", "shell history", ".env files", "SSH keys", "OMP databases"]
+    "neverTrack": ["credentials", "tokens", "shell history", ".env files", "SSH keys", "OMP databases", "Mole configuration and operation logs"]
   },
   "sources": {
     "dotfilesInspiration": "https://github.com/tobi/dotfiles",
     "dotfilesInspirationRevision": "c1a2d9fc0d6248bd6549c99c387b8c6dcc984c3a",
     "terminalEmulator": "https://ghostty.org",
     "workspaceManager": "https://herdr.dev",
-    "codingAgent": "https://github.com/can1357/oh-my-pi"
+    "codingAgent": "https://github.com/can1357/oh-my-pi",
+    "systemMaintenance": "https://github.com/tw93/Mole"
   }
 }
