@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const fileSystem = vi.hoisted(() => ({
@@ -14,16 +14,10 @@ const terminal = vi.hoisted(() => ({
   insertCommand: vi.fn(),
   focus: vi.fn(),
   mounts: 0,
-  pairing: null as null | {
-    version: 1;
-    instanceId: string;
-    pairingSecret: string;
-  },
-  consumePairing: undefined as undefined | (() => void),
 }));
 
 const liveOrigin = vi.hoisted(() => ({
-  consumeLiveMacAccess: vi.fn(),
+  supportsLiveMac: vi.fn(),
 }));
 
 vi.mock("@/app/lib/file-system", () => fileSystem);
@@ -36,13 +30,7 @@ vi.mock("@/app/components/WizardTerminal", async () => {
       props: {
         lessonId: string;
         mode: "practice" | "live";
-        pairing?: {
-          version: 1;
-          instanceId: string;
-          pairingSecret: string;
-        } | null;
         files?: Record<string, string>;
-        onPairingConsumed?(): void;
         onCommand(result: {
           lessonId: string;
           command: string;
@@ -53,8 +41,6 @@ vi.mock("@/app/components/WizardTerminal", async () => {
       },
       ref,
     ) {
-      terminal.pairing = props.pairing ?? null;
-      terminal.consumePairing = props.onPairingConsumed;
       const [instance] = ReactModule.useState(() => {
         terminal.mounts += 1;
         return terminal.mounts;
@@ -150,12 +136,6 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-const hostedPairing = Object.freeze({
-  version: 1 as const,
-  instanceId: "a".repeat(22),
-  pairingSecret: "b".repeat(43),
-});
-
 async function waitForHydration() {
   await screen.findByLabelText("0 of 10 lessons complete");
   return screen.findByRole("button", { name: /^Practice files: (?!checking folder access)/ });
@@ -182,9 +162,7 @@ beforeEach(() => {
   terminal.insertCommand.mockReset();
   terminal.focus.mockReset();
   terminal.mounts = 0;
-  terminal.pairing = null;
-  terminal.consumePairing = undefined;
-  liveOrigin.consumeLiveMacAccess.mockReturnValue({ kind: "local", pairing: null });
+  liveOrigin.supportsLiveMac.mockReturnValue(true);
   fileSystem.supportsFileSystemAccess.mockReturnValue(true);
   fileSystem.restoreFolder.mockResolvedValue(null);
   fileSystem.connectFolder.mockResolvedValue(snapshot());
@@ -580,109 +558,6 @@ describe("Terminal Tutor client journey", () => {
 
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Live Mac can change your computer." })).toBeNull());
-    await waitFor(() => expect(document.activeElement).toBe(live));
-  });
-
-  it("keeps a hosted pairing inert and requires fresh consent again after cancel", async () => {
-    liveOrigin.consumeLiveMacAccess.mockReturnValue({ kind: "hosted", pairing: hostedPairing });
-    const loopbackFetch = vi.fn();
-    vi.stubGlobal("fetch", loopbackFetch);
-    const user = userEvent.setup();
-    render(<TerminalWizard />);
-    await waitForHydration();
-
-    expect(terminal.pairing).toBeNull();
-    expect(screen.getByTestId("fake-terminal").getAttribute("data-mode")).toBe("practice");
-    await user.click(screen.getByRole("button", { name: "Live Mac" }));
-    expect(screen.getByText(/Terminal traffic stays between this browser and your Mac/)).toBeTruthy();
-    expect(screen.getByText(/Chrome will ask for Local Network Access/)).toBeTruthy();
-    await user.type(screen.getByLabelText(/Type LIVE/), "LIVE");
-    await user.click(screen.getByRole("button", { name: "Stay in Practice" }));
-
-    expect(loopbackFetch).not.toHaveBeenCalled();
-    expect(terminal.pairing).toBeNull();
-    expect(screen.getByTestId("fake-terminal").getAttribute("data-mode")).toBe("practice");
-
-    await user.click(screen.getByRole("button", { name: "Live Mac" }));
-    expect((screen.getByLabelText(/Type LIVE/) as HTMLInputElement).value).toBe("");
-    expect((screen.getByRole("button", { name: "Open Live Mac" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(loopbackFetch).not.toHaveBeenCalled();
-  });
-
-  it("passes a hosted pairing only after exact consent and spends it for the page", async () => {
-    liveOrigin.consumeLiveMacAccess.mockReturnValue({ kind: "hosted", pairing: hostedPairing });
-    const user = userEvent.setup();
-    render(<TerminalWizard />);
-    await waitForHydration();
-
-    await user.click(screen.getByRole("button", { name: "Live Mac" }));
-    await user.type(screen.getByLabelText(/Type LIVE/), "live");
-    expect((screen.getByRole("button", { name: "Open Live Mac" }) as HTMLButtonElement).disabled).toBe(true);
-    await user.clear(screen.getByLabelText(/Type LIVE/));
-    await user.type(screen.getByLabelText(/Type LIVE/), "LIVE");
-    await user.click(screen.getByRole("button", { name: "Open Live Mac" }));
-
-    expect(screen.getByTestId("fake-terminal").getAttribute("data-mode")).toBe("live");
-    expect(terminal.pairing).toEqual(hostedPairing);
-    expect(terminal.consumePairing).toBeTypeOf("function");
-
-    await act(async () => terminal.consumePairing?.());
-    await waitFor(() => expect(terminal.pairing).toBeNull());
-    await user.click(screen.getByRole("button", { name: "Practice" }));
-
-    const live = screen.getByRole("button", { name: "Pair Live Mac" }) as HTMLButtonElement;
-    expect(live.disabled).toBe(false);
-    expect(screen.getByTestId("fake-terminal").getAttribute("data-mode")).toBe("practice");
-  });
-
-  it("keeps an unspent hosted pairing available after returning to Practice", async () => {
-    liveOrigin.consumeLiveMacAccess.mockReturnValue({ kind: "hosted", pairing: hostedPairing });
-    const user = userEvent.setup();
-    render(<TerminalWizard />);
-    await waitForHydration();
-
-    await user.click(screen.getByRole("button", { name: "Live Mac" }));
-    await user.type(screen.getByLabelText(/Type LIVE/), "LIVE");
-    await user.click(screen.getByRole("button", { name: "Open Live Mac" }));
-    expect(terminal.pairing).toEqual(hostedPairing);
-
-    await user.click(screen.getByRole("button", { name: "Practice" }));
-    expect(screen.getByTestId("fake-terminal").getAttribute("data-mode")).toBe("practice");
-    expect(screen.getByRole("button", { name: "Live Mac" })).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "Live Mac" }));
-    expect((screen.getByLabelText(/Type LIVE/) as HTMLInputElement).value).toBe("");
-    await user.type(screen.getByLabelText(/Type LIVE/), "LIVE");
-    await user.click(screen.getByRole("button", { name: "Open Live Mac" }));
-    expect(terminal.pairing).toEqual(hostedPairing);
-  });
-
-  it("explains hosted pairing without probing loopback", async () => {
-    liveOrigin.consumeLiveMacAccess.mockReturnValue({ kind: "hosted-unpaired", pairing: null });
-    const loopbackFetch = vi.fn();
-    vi.stubGlobal("fetch", loopbackFetch);
-    const user = userEvent.setup();
-    render(<TerminalWizard />);
-    await waitForHydration();
-
-    const live = screen.getByRole("button", { name: "Pair Live Mac" }) as HTMLButtonElement;
-    expect(live.disabled).toBe(false);
-    expect(terminal.pairing).toBeNull();
-    expect(screen.getByTestId("fake-terminal").getAttribute("data-mode")).toBe("practice");
-    await user.click(live);
-    const dialog = screen.getByRole("dialog", { name: "Pair this Mac first." });
-    const close = within(dialog).getByRole("button", { name: "Close Live Mac pairing instructions" });
-    const back = within(dialog).getByRole("button", { name: "Back to Practice" });
-    await waitFor(() => expect(document.activeElement).toBe(close));
-    await user.tab({ shift: true });
-    expect(document.activeElement).toBe(back);
-    await user.tab();
-    expect(document.activeElement).toBe(close);
-    expect(within(dialog).getByText("terminal-wizard --hosted")).toBeTruthy();
-    expect(within(dialog).getByText(/Vercel never receives/)).toBeTruthy();
-    expect(loopbackFetch).not.toHaveBeenCalled();
-    await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Pair this Mac first." })).toBeNull());
     await waitFor(() => expect(document.activeElement).toBe(live));
   });
 

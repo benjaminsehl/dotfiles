@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { homedir, userInfo } from "node:os";
@@ -11,13 +11,8 @@ const host = "127.0.0.1";
 const port = Number(process.env.WIZARD_PTY_PORT ?? 4318);
 const allowedOrigin = process.env.WIZARD_ALLOWED_ORIGIN ?? "http://127.0.0.1:4317";
 const sessionToken = process.env.WIZARD_SESSION_TOKEN ?? "";
-const pairingSecret = process.env.WIZARD_PAIRING_SECRET ?? "";
-const instanceId = process.env.WIZARD_INSTANCE_ID ?? "";
 const expectedHost = `${host}:${port}`;
-const hostedOrigin = "https://terminal-tutor-three.vercel.app";
-const maximumPairingBodyBytes = 1_024;
 const defaultIdleTimeoutMs = 20 * 60 * 1000;
-const defaultPairingLifetimeMs = 5 * 60 * 1000;
 const defaultStartDeadlineMs = 10_000;
 const defaultAbsoluteSessionMs = 2 * 60 * 60 * 1000;
 function testDuration(name: string, fallback: number): number {
@@ -28,10 +23,6 @@ function testDuration(name: string, fallback: number): number {
 const idleTimeoutMs = (() => {
   return testDuration("WIZARD_TEST_IDLE_TIMEOUT_MS", defaultIdleTimeoutMs);
 })();
-const pairingLifetimeMs = testDuration(
-  "WIZARD_TEST_PAIRING_TIMEOUT_MS",
-  defaultPairingLifetimeMs,
-);
 const startDeadlineMs = testDuration(
   "WIZARD_TEST_START_DEADLINE_MS",
   defaultStartDeadlineMs,
@@ -62,24 +53,10 @@ const allowedOriginUrl = (() => {
 })();
 const isLocalMode =
   allowedOriginUrl.protocol === "http:" && allowedOriginUrl.hostname === "127.0.0.1";
-const isHostedMode = allowedOrigin === hostedOrigin;
 const shellWorkingDirectory = (() => {
   const configured = process.env.WIZARD_WORKSPACE_ROOT;
-  if (!configured) {
-    if (isHostedMode) {
-      throw new Error("WIZARD_WORKSPACE_ROOT must name an existing directory in hosted mode");
-    }
-    return resolve(homedir());
-  }
+  if (!configured) return resolve(homedir());
   const candidate = resolve(configured);
-  if (isHostedMode) {
-    try {
-      if (existsSync(candidate) && statSync(candidate).isDirectory()) return candidate;
-    } catch {
-      // Fall through to the fail-closed hosted-mode error below.
-    }
-    throw new Error("WIZARD_WORKSPACE_ROOT must name an existing directory in hosted mode");
-  }
   try {
     return existsSync(candidate) && statSync(candidate).isDirectory()
       ? candidate
@@ -92,14 +69,8 @@ const shellWorkingDirectory = (() => {
 if (!/^[a-f0-9]{64}$/.test(sessionToken)) {
   throw new Error("WIZARD_SESSION_TOKEN must be a fresh 32-byte hexadecimal value");
 }
-if (!isLocalMode && !isHostedMode) {
-  throw new Error(`WIZARD_ALLOWED_ORIGIN must be a 127.0.0.1 origin or ${hostedOrigin}`);
-}
-if (isHostedMode && !/^[A-Za-z0-9_-]{43}$/.test(pairingSecret)) {
-  throw new Error("WIZARD_PAIRING_SECRET must be a fresh 32-byte base64url value in hosted mode");
-}
-if (isHostedMode && !/^[A-Za-z0-9_-]{22}$/.test(instanceId)) {
-  throw new Error("WIZARD_INSTANCE_ID must be a fresh 16-byte base64url value in hosted mode");
+if (!isLocalMode) {
+  throw new Error("WIZARD_ALLOWED_ORIGIN must be an exact http://127.0.0.1 origin");
 }
 
 type ClientMessage =
@@ -116,11 +87,6 @@ type ServerMessage =
   | { type: "pong" };
 
 const tickets = new Map<string, number>();
-type HostedPairingState = "awaiting-pair" | "ticket-issued" | "active" | "spent";
-let hostedPairingState: HostedPairingState = "awaiting-pair";
-const pairingExpiresAt = Date.now() + pairingLifetimeMs;
-let pairingExpiryTimer: NodeJS.Timeout | null = null;
-let ticketExpiryTimer: NodeJS.Timeout | null = null;
 let socketReserved = false;
 
 function pruneTickets(now = Date.now()): void {
@@ -133,7 +99,7 @@ function mintTicket(): string {
   pruneTickets();
   const nonce = randomBytes(32).toString("base64url");
   const signature = createHmac("sha256", sessionToken).update(nonce).digest("base64url");
-  const ticket = `terminal-wizard.${nonce}.${signature}`;
+  const ticket = `terminal-tutor.${nonce}.${signature}`;
   tickets.set(ticket, Date.now() + ticketLifetimeMs);
   return ticket;
 }
@@ -143,12 +109,6 @@ function consumeTicket(ticket: string | undefined): boolean {
   const expiresAt = tickets.get(ticket);
   tickets.delete(ticket);
   return typeof expiresAt === "number" && expiresAt > Date.now();
-}
-
-function safeEqual(left: string, right: string): boolean {
-  const leftBytes = Buffer.from(left, "utf8");
-  const rightBytes = Buffer.from(right, "utf8");
-  return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
 }
 
 function isLoopback(request: IncomingMessage): boolean {
@@ -166,102 +126,6 @@ function sendJson(response: ServerResponse, status: number, body: unknown, expos
     ...(expose ? { "Access-Control-Allow-Origin": allowedOrigin, Vary: "Origin" } : {}),
   });
   response.end(JSON.stringify(body));
-}
-
-function sendEmpty(
-  response: ServerResponse,
-  status: number,
-  expose = false,
-  allowPrivateNetwork = false,
-): void {
-  response.writeHead(status, {
-    "Cache-Control": "no-store",
-    "Cross-Origin-Resource-Policy": expose ? "cross-origin" : "same-site",
-    "Referrer-Policy": "no-referrer",
-    "X-Content-Type-Options": "nosniff",
-    ...(expose
-      ? {
-          "Access-Control-Allow-Headers": "Content-Type",
-          "Access-Control-Allow-Methods": "POST",
-          "Access-Control-Allow-Origin": allowedOrigin,
-          "Access-Control-Max-Age": "0",
-          ...(allowPrivateNetwork ? { "Access-Control-Allow-Private-Network": "true" } : {}),
-          Vary: "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
-        }
-      : {}),
-  });
-  response.end();
-}
-
-type PairingRequest = {
-  version: 1;
-  instanceId: string;
-  pairingSecret: string;
-};
-
-function parsePairingRequest(value: unknown): PairingRequest | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  if (
-    Object.keys(record).length !== 3 ||
-    record.version !== 1 ||
-    typeof record.instanceId !== "string" ||
-    !/^[A-Za-z0-9_-]{22}$/.test(record.instanceId) ||
-    typeof record.pairingSecret !== "string" ||
-    !/^[A-Za-z0-9_-]{43}$/.test(record.pairingSecret)
-  ) {
-    return null;
-  }
-  return {
-    version: 1,
-    instanceId: record.instanceId,
-    pairingSecret: record.pairingSecret,
-  };
-}
-
-async function readPairingRequest(request: IncomingMessage): Promise<PairingRequest | null> {
-  const contentType = request.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase();
-  if (contentType !== "application/json") {
-    request.resume();
-    return null;
-  }
-  const declaredLength = Number(request.headers["content-length"]);
-  if (
-    request.headers["content-length"] !== undefined &&
-    (!Number.isSafeInteger(declaredLength) || declaredLength < 0 || declaredLength > maximumPairingBodyBytes)
-  ) {
-    request.resume();
-    return null;
-  }
-
-  const chunks: Buffer[] = [];
-  let byteLength = 0;
-  const body = await new Promise<string | null>((resolveBody) => {
-    let settled = false;
-    const finish = (value: string | null) => {
-      if (settled) return;
-      settled = true;
-      resolveBody(value);
-    };
-    request.on("data", (chunk: Buffer) => {
-      if (settled) return;
-      byteLength += chunk.length;
-      if (byteLength > maximumPairingBodyBytes) {
-        finish(null);
-        return;
-      }
-      chunks.push(chunk);
-    });
-    request.once("end", () => finish(Buffer.concat(chunks).toString("utf8")));
-    request.once("aborted", () => finish(null));
-    request.once("error", () => finish(null));
-  });
-  if (body === null) return null;
-  try {
-    return parsePairingRequest(JSON.parse(body));
-  } catch {
-    return null;
-  }
 }
 
 function cleanShellEnvironment(): Record<string, string> {
@@ -284,7 +148,7 @@ function cleanShellEnvironment(): Record<string, string> {
     TERM: "xterm-ghostty",
     COLORTERM: "truecolor",
     TERM_PROGRAM: "ghostty",
-    TERMINAL_WIZARD: "live",
+    TERMINAL_TUTOR: "live",
   };
   for (const key of allowed) {
     const value = process.env[key];
@@ -346,19 +210,6 @@ function sendOutput(socket: WebSocket, data: string): void {
 let activeSocket: WebSocket | null = null;
 let activePty: pty.IPty | null = null;
 
-function validPairingPreflight(request: IncomingMessage): boolean {
-  const requestedMethod = request.headers["access-control-request-method"];
-  const requestedHeaders = (request.headers["access-control-request-headers"] ?? "")
-    .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
-  const privateNetwork = request.headers["access-control-request-private-network"];
-  return (privateNetwork === undefined || privateNetwork === "true") &&
-    requestedMethod === "POST" &&
-    requestedHeaders.length === 1 &&
-    requestedHeaders[0] === "content-type";
-}
-
 async function handleHttpRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -371,37 +222,17 @@ async function handleHttpRequest(
   const origin = request.headers.origin;
   const requestUrl = new URL(request.url ?? "/", `http://${host}:${port}`);
   const exactPath = requestUrl.search === "" && requestUrl.hash === "";
-  if (request.method === "GET" && exactPath && requestUrl.pathname === "/health") {
-    sendJson(
-      response,
-      200,
-      isHostedMode
-        ? { ready: true, mode: "hosted", instanceId }
-        : { ready: true, mode: "local" },
-      origin === allowedOrigin,
-    );
-    return;
-  }
-
   if (
-    isHostedMode &&
-    request.method === "OPTIONS" &&
-    exactPath &&
-    requestUrl.pathname === "/session" &&
-    origin === allowedOrigin &&
-    validPairingPreflight(request)
+    request.method === "GET"
+    && exactPath
+    && requestUrl.pathname === "/health"
+    && origin === undefined
   ) {
-    sendEmpty(
-      response,
-      204,
-      true,
-      request.headers["access-control-request-private-network"] === "true",
-    );
+    sendJson(response, 200, { ready: true, mode: "local" });
     return;
   }
 
   if (
-    isLocalMode &&
     request.method === "GET" &&
     exactPath &&
     requestUrl.pathname === "/session" &&
@@ -410,55 +241,6 @@ async function handleHttpRequest(
     !socketReserved
   ) {
     sendJson(response, 200, { protocol: mintTicket(), expiresInMs: ticketLifetimeMs }, true);
-    return;
-  }
-
-  if (
-    isHostedMode &&
-    request.method === "POST" &&
-    exactPath &&
-    requestUrl.pathname === "/session" &&
-    origin === allowedOrigin
-  ) {
-    if (hostedPairingState !== "awaiting-pair" || activeSocket || socketReserved) {
-      sendJson(response, 409, { error: "pairing unavailable" }, true);
-      return;
-    }
-    if (Date.now() >= pairingExpiresAt) {
-      sendJson(response, 410, { error: "pairing expired" }, true);
-      return;
-    }
-    const pairing = await readPairingRequest(request);
-    if (!pairing) {
-      sendJson(response, 400, { error: "invalid pairing request" }, true);
-      return;
-    }
-    // Re-check after the asynchronous body read so two concurrent requests
-    // cannot both exchange the same one-shot pairing capability.
-    if (hostedPairingState !== "awaiting-pair") {
-      sendJson(response, 409, { error: "pairing unavailable" }, true);
-      return;
-    }
-    if (Date.now() >= pairingExpiresAt) {
-      sendJson(response, 410, { error: "pairing expired" }, true);
-      return;
-    }
-    if (
-      !safeEqual(pairing.instanceId, instanceId) ||
-      !safeEqual(pairing.pairingSecret, pairingSecret)
-    ) {
-      sendJson(response, 401, { error: "pairing rejected" }, true);
-      return;
-    }
-
-    hostedPairingState = "ticket-issued";
-    if (pairingExpiryTimer) clearTimeout(pairingExpiryTimer);
-    pairingExpiryTimer = null;
-    const protocol = mintTicket();
-    ticketExpiryTimer = setTimeout(() => {
-      if (hostedPairingState === "ticket-issued") shutdown();
-    }, ticketLifetimeMs);
-    sendJson(response, 200, { protocol, expiresInMs: ticketLifetimeMs }, true);
     return;
   }
   sendJson(response, 404, { error: "not found" });
@@ -566,10 +348,6 @@ socketServer.on("connection", (socket) => {
     if (activePty === ownedPty) activePty = null;
     ownedPty?.kill();
     if (activeSocket === socket) activeSocket = null;
-    if (isHostedMode) {
-      hostedPairingState = "spent";
-      setImmediate(shutdown);
-    }
   });
 });
 
@@ -587,8 +365,7 @@ httpServer.on("upgrade", (request, socket, head) => {
     request.headers.host !== expectedHost ||
     origin !== allowedOrigin ||
     requestUrl.pathname !== "/terminal" ||
-    requestUrl.search !== "" ||
-    (isHostedMode && hostedPairingState !== "ticket-issued")
+    requestUrl.search !== ""
   ) {
     socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
     socket.destroy();
@@ -603,41 +380,24 @@ httpServer.on("upgrade", (request, socket, head) => {
   }
 
   socketReserved = true;
-  if (isHostedMode) {
-    hostedPairingState = "active";
-    if (ticketExpiryTimer) clearTimeout(ticketExpiryTimer);
-    ticketExpiryTimer = null;
-  }
   try {
     socketServer.handleUpgrade(request, socket, head, (webSocket) => {
       socketServer.emit("connection", webSocket, request);
     });
   } catch {
     socketReserved = false;
-    if (isHostedMode) {
-      hostedPairingState = "spent";
-      setImmediate(shutdown);
-    }
     socket.destroy();
   }
 });
 
 httpServer.listen(port, host, () => {
   console.log(`Live Mac service ready on http://${host}:${port} (loopback only)`);
-  if (isHostedMode) {
-    const remainingMs = Math.max(1, pairingExpiresAt - Date.now());
-    pairingExpiryTimer = setTimeout(() => {
-      if (hostedPairingState === "awaiting-pair") shutdown();
-    }, remainingMs);
-  }
 });
 
 let shuttingDown = false;
 function shutdown(): void {
   if (shuttingDown) return;
   shuttingDown = true;
-  if (pairingExpiryTimer) clearTimeout(pairingExpiryTimer);
-  if (ticketExpiryTimer) clearTimeout(ticketExpiryTimer);
   activePty?.kill();
   activeSocket?.close(1001, "service stopping");
   socketServer.close();

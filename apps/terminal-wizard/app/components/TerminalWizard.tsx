@@ -22,11 +22,7 @@ import {
   requiredLessonCommands,
   type LessonCommandResult,
 } from "@/app/lib/lesson-progress";
-import {
-  consumeLiveMacAccess,
-  type HostedPairing,
-  type LiveMacAccess,
-} from "@/app/lib/live-origin";
+import { supportsLiveMac } from "@/app/lib/live-origin";
 import {
   WizardTerminal,
   type TerminalMode,
@@ -56,20 +52,17 @@ function trapDialogFocus(event: KeyboardEvent, dialog: HTMLElement | null) {
 
 export function TerminalWizard() {
   const [selectedId, setSelectedId] = useState(lessons[0].id);
-  const [progress, setProgress] = useState<Progress>({});
-  const [progressHydrated, setProgressHydrated] = useState(false);
+  const [progress, setProgress] = useState<Progress>(() => readProgress(window.localStorage));
   const [mode, setMode] = useState<TerminalMode>("practice");
-  const [liveAccess, setLiveAccess] = useState<LiveMacAccess>({ kind: "unavailable", pairing: null });
-  const [activePairing, setActivePairing] = useState<HostedPairing | null>(null);
+  const [localLiveAvailable] = useState(() => supportsLiveMac(window.location.origin));
   const [liveDialogOpen, setLiveDialogOpen] = useState(false);
-  const [pairingHelpOpen, setPairingHelpOpen] = useState(false);
   const [livePhrase, setLivePhrase] = useState("");
   const [folder, setFolder] = useState<FolderSnapshot | null>(null);
   const [folderBusy, setFolderBusy] = useState(false);
   const [folderMessage, setFolderMessage] = useState("");
   const [folderMessageTone, setFolderMessageTone] = useState<"status" | "error">("status");
   const [folderRevision, setFolderRevision] = useState(0);
-  const [pickerSupported, setPickerSupported] = useState(false);
+  const [pickerSupported] = useState(() => supportsFileSystemAccess());
   const [lessonMenuOpen, setLessonMenuOpen] = useState(false);
   const [folderPanelOpen, setFolderPanelOpen] = useState(false);
   const [mobilePane, setMobilePane] = useState<"lesson" | "terminal">("lesson");
@@ -77,8 +70,6 @@ export function TerminalWizard() {
   const liveInputRef = useRef<HTMLInputElement>(null);
   const liveTriggerRef = useRef<HTMLButtonElement>(null);
   const liveDialogRef = useRef<HTMLElement>(null);
-  const pairingHelpDialogRef = useRef<HTMLElement>(null);
-  const pairingHelpCloseRef = useRef<HTMLButtonElement>(null);
   const lessonMenuRef = useRef<HTMLElement>(null);
   const lessonTriggerRef = useRef<HTMLButtonElement>(null);
   const folderPanelRef = useRef<HTMLElement>(null);
@@ -103,26 +94,11 @@ export function TerminalWizard() {
     setLivePhrase("");
     window.requestAnimationFrame(() => liveTriggerRef.current?.focus());
   }, []);
-  const closePairingHelp = useCallback(() => {
-    setPairingHelpOpen(false);
-    window.requestAnimationFrame(() => liveTriggerRef.current?.focus());
-  }, []);
-
   useEffect(() => {
     let active = true;
-    const supported = supportsFileSystemAccess();
-    const detectedLiveAccess = consumeLiveMacAccess(window.location, window.history);
-    const progressTimer = window.setTimeout(() => {
-      if (!active) return;
-      setLiveAccess(detectedLiveAccess);
-      setProgress(readProgress(window.localStorage));
-      setProgressHydrated(true);
-      setPickerSupported(supported);
-    }, 0);
-    if (!supported) {
+    if (!pickerSupported) {
       return () => {
         active = false;
-        window.clearTimeout(progressTimer);
       };
     }
     const folderOperation = folderOperationRef.current;
@@ -141,18 +117,16 @@ export function TerminalWizard() {
       });
     return () => {
       active = false;
-      window.clearTimeout(progressTimer);
     };
-  }, []);
+  }, [pickerSupported]);
 
   useEffect(() => {
-    if (!progressHydrated) return;
     if (Object.keys(progress).length === 0) {
       clearProgress(window.localStorage);
     } else {
       persistProgress(window.localStorage, progress);
     }
-  }, [progress, progressHydrated]);
+  }, [progress]);
 
   useEffect(() => {
     if (!liveDialogOpen) return;
@@ -170,23 +144,6 @@ export function TerminalWizard() {
       window.removeEventListener("keydown", handleDialogKeys);
     };
   }, [closeLiveDialog, liveDialogOpen]);
-
-  useEffect(() => {
-    if (!pairingHelpOpen) return;
-    const focusFrame = window.requestAnimationFrame(() => pairingHelpCloseRef.current?.focus());
-    const handleDialogKeys = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        closePairingHelp();
-        return;
-      }
-      trapDialogFocus(event, pairingHelpDialogRef.current);
-    };
-    window.addEventListener("keydown", handleDialogKeys);
-    return () => {
-      window.cancelAnimationFrame(focusFrame);
-      window.removeEventListener("keydown", handleDialogKeys);
-    };
-  }, [closePairingHelp, pairingHelpOpen]);
 
   useEffect(() => {
     if (!lessonMenuOpen && !folderPanelOpen) return;
@@ -322,12 +279,6 @@ export function TerminalWizard() {
 
   const beginLive = () => {
     if (!liveAvailable || livePhrase !== "LIVE") return;
-    if (liveAccess.kind === "hosted") {
-      setActivePairing(liveAccess.pairing);
-      setLiveAccess({ kind: "hosted-unpaired", pairing: null });
-    } else if (liveAccess.kind === "local") {
-      setActivePairing(null);
-    }
     setLiveDialogOpen(false);
     setLivePhrase("");
     setMode("live");
@@ -338,8 +289,7 @@ export function TerminalWizard() {
     setMode("practice");
   };
 
-  const liveAvailable = liveAccess.kind === "local" || liveAccess.kind === "hosted" || activePairing !== null || mode === "live";
-  const pairedFromHostedPage = liveAccess.kind === "hosted" || activePairing !== null;
+  const liveAvailable = localLiveAvailable || mode === "live";
 
   const lessonEntries = progress[selectedLesson.id] ?? [];
   const selectedIndex = lessons.findIndex((lesson) => lesson.id === selectedLesson.id);
@@ -378,38 +328,28 @@ export function TerminalWizard() {
   );
   const folderTriggerValue = folderBusy
     ? "Reading…"
-    : !progressHydrated
-      ? "Loading…"
-      : !pickerSupported
-        ? "Unavailable"
-        : folder?.permission === "granted"
-          ? folder.label
-          : folder?.permission === "denied"
-            ? "Denied"
-            : folder
-              ? "Reconnect"
-              : "Add";
+    : !pickerSupported
+      ? "Unavailable"
+      : folder?.permission === "granted"
+        ? folder.label
+        : folder?.permission === "denied"
+          ? "Denied"
+          : folder
+            ? "Reconnect"
+            : "Add";
   const folderTriggerLabel = folderBusy
     ? "Practice files: reading folder"
-    : !progressHydrated
-      ? "Practice files: checking folder access"
-      : !pickerSupported
-        ? "Practice files: folder access unavailable in this browser"
-        : folder?.permission === "granted"
-          ? `Practice files: ${folder.label}, ${folder.fileCount} safe text files ready${folderNeedsAttention ? ", attention needed" : ""}`
-          : folder?.permission === "denied"
-            ? `Practice files: ${folder.label}, access denied`
-            : folder
-              ? `Practice files: ${folder.label}, permission required`
-              : `Practice files: no folder connected${folderNeedsAttention ? ", attention needed" : ""}`;
+    : !pickerSupported
+      ? "Practice files: folder access unavailable in this browser"
+      : folder?.permission === "granted"
+        ? `Practice files: ${folder.label}, ${folder.fileCount} safe text files ready${folderNeedsAttention ? ", attention needed" : ""}`
+        : folder?.permission === "denied"
+          ? `Practice files: ${folder.label}, access denied`
+          : folder
+            ? `Practice files: ${folder.label}, permission required`
+            : `Practice files: no folder connected${folderNeedsAttention ? ", attention needed" : ""}`;
 
   const openLiveDialog = () => {
-    if (liveAccess.kind === "hosted-unpaired" && activePairing === null) {
-      closeFolderPanel(false);
-      closeLessonMenu(false);
-      setPairingHelpOpen(true);
-      return;
-    }
     if (!liveAvailable) return;
     closeFolderPanel(false);
     closeLessonMenu(false);
@@ -480,7 +420,7 @@ export function TerminalWizard() {
             className="progress-reset"
             type="button"
             onClick={resetAllProgress}
-            disabled={!progressHydrated || !hasProgress}
+            disabled={!hasProgress}
             aria-label="Reset all lesson progress"
           >
             Reset
@@ -587,12 +527,12 @@ export function TerminalWizard() {
                   ref={liveTriggerRef}
                   className={mode === "live" ? "live-active" : ""}
                   aria-pressed={mode === "live"}
-                  aria-label={liveAvailable ? "Live Mac" : liveAccess.kind === "hosted-unpaired" ? "Pair Live Mac" : "Live Mac (unavailable)"}
-                  title={liveAvailable || liveAccess.kind === "hosted-unpaired" ? undefined : "Live Mac is available from the local app or a paired production page"}
-                  disabled={!liveAvailable && liveAccess.kind !== "hosted-unpaired"}
+                  aria-label={liveAvailable ? "Live Mac" : "Live Mac (unavailable)"}
+                  title={liveAvailable ? undefined : "Live Mac is available only in the local Terminal Tutor app"}
+                  disabled={!liveAvailable}
                   onClick={() => mode === "live" ? undefined : openLiveDialog()}
                 >
-                  <span aria-hidden="true">●</span> Live Mac{liveAvailable ? "" : liveAccess.kind === "hosted-unpaired" ? " · Pair first" : " · Unavailable"}
+                  <span aria-hidden="true">●</span> Live Mac{liveAvailable ? "" : " · Unavailable"}
                 </button>
               </div>
               <div className="terminal-tools">
@@ -637,8 +577,6 @@ export function TerminalWizard() {
               ref={terminalRef}
               lessonId={selectedLesson.id}
               mode={mode}
-              pairing={activePairing}
-              onPairingConsumed={() => setActivePairing(null)}
               files={folder?.permission === "granted" ? folder.files : {}}
               onCommand={recordCommand}
             />
@@ -688,7 +626,7 @@ export function TerminalWizard() {
                   ) : (
                     <div className="folder-empty">
                       <p>Choose a narrow project folder, never your home folder.</p>
-                      {progressHydrated && !pickerSupported ? (
+                      {!pickerSupported ? (
                         <p className="folder-recovery" role="status">
                           Folder snapshots require Chrome’s File System Access API. Open this page in an up-to-date desktop Chrome window and reload. If you’re already in Chrome, restart or update Chrome, or try a standard profile where the API is enabled.
                         </p>
@@ -743,7 +681,7 @@ export function TerminalWizard() {
               <button
                 type="button"
                 onClick={resetAllProgress}
-                disabled={!progressHydrated || !hasProgress}
+                disabled={!hasProgress}
               >
                 Reset course progress
               </button>
@@ -764,8 +702,6 @@ export function TerminalWizard() {
             </p>
             <ul>
               <li>Bound to 127.0.0.1 only</li>
-              {pairedFromHostedPage ? <li>Terminal traffic stays between this browser and your Mac; Vercel never receives it</li> : null}
-              {pairedFromHostedPage ? <li>Chrome will ask for Local Network Access after you continue; choose Allow in the address-bar prompt</li> : null}
               <li>One browser session and one-time 30-second ticket</li>
               <li>No automatic command execution from lessons</li>
               <li>Closes after 20 minutes without keyboard activity</li>
@@ -787,22 +723,6 @@ export function TerminalWizard() {
         </div>
       ) : null}
 
-      {pairingHelpOpen ? (
-        <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && closePairingHelp()}>
-          <section ref={pairingHelpDialogRef} className="live-dialog pairing-dialog" role="dialog" aria-modal="true" aria-labelledby="pairing-dialog-title">
-            <button ref={pairingHelpCloseRef} className="dialog-close" onClick={closePairingHelp} aria-label="Close Live Mac pairing instructions">×</button>
-            <span className="danger-orbit pairing-orbit" aria-hidden="true">↯</span>
-            <p className="eyebrow">Vercel UI · local shell</p>
-            <h2 id="pairing-dialog-title">Pair this Mac first.</h2>
-            <p>Run this in Ghostty. It starts a five-minute, one-shot companion and opens a fresh paired page in Chrome:</p>
-            <pre className="pairing-command"><code>terminal-wizard --hosted</code></pre>
-            <p>Your terminal traffic stays between Chrome and <code>127.0.0.1</code>. Vercel never receives the pairing secret, keystrokes, or shell output.</p>
-            <div className="dialog-actions">
-              <button className="secondary-button" onClick={closePairingHelp}>Back to Practice</button>
-            </div>
-          </section>
-        </div>
-      ) : null}
     </div>
   );
 }

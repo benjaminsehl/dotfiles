@@ -19,7 +19,8 @@ sources=(
   bin/dev-update
   bin/dev-doctor
   bin/configure-codex
-  bin/terminal-wizard
+  bin/terminal-tutor
+  bin/terminal-tutor
 )
 targets=(
   .profile
@@ -38,6 +39,7 @@ targets=(
   .local/bin/dev-update
   .local/bin/dev-doctor
   .local/bin/configure-codex
+  .local/bin/terminal-tutor
   .local/bin/terminal-wizard
 )
 

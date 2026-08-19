@@ -51,7 +51,7 @@ Nothing here can alter the Mac.
 `,
   [`${PRACTICE_ROOT}/apps/terminal-wizard/package.json`]: `${JSON.stringify(
     {
-      name: "terminal-wizard",
+      name: "terminal-tutor",
       private: true,
       scripts: {
         dev: "npm run dev:web",

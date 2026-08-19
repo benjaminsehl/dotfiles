@@ -16,8 +16,6 @@ const tsxCli = fileURLToPath(
 const ptyServer = fileURLToPath(
   new URL("../server/pty-server.ts", import.meta.url),
 );
-const hostedOrigin = "https://terminal-tutor-three.vercel.app";
-
 let child: ChildProcess;
 let bridgePort = 0;
 let browserOrigin = "";
@@ -85,105 +83,6 @@ async function stopChild(process: ChildProcess): Promise<void> {
   ]);
 }
 
-async function waitForExit(process: ChildProcess, timeoutMs = 3_000): Promise<number | null> {
-  if (process.exitCode !== null || process.signalCode !== null) return process.exitCode;
-  return new Promise<number | null>((resolveExit, reject) => {
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error("PTY service did not exit in time"));
-    }, timeoutMs);
-    const cleanup = () => {
-      clearTimeout(timeout);
-      process.off("exit", onExit);
-    };
-    const onExit = (code: number | null) => {
-      cleanup();
-      resolveExit(code);
-    };
-    process.once("exit", onExit);
-  });
-}
-
-async function spawnForFailure(
-  environment: Record<string, string>,
-): Promise<{ code: number | null; stderr: string }> {
-  const failedChild = spawn(process.execPath, [tsxCli, ptyServer], {
-    cwd: projectRoot,
-    env: {
-      ...process.env,
-      NODE_ENV: "test",
-      WIZARD_SESSION_TOKEN: randomBytes(32).toString("hex"),
-      WIZARD_PTY_PORT: String(await availablePort()),
-      WIZARD_WORKSPACE_ROOT: projectRoot,
-      ...environment,
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let stderr = "";
-  failedChild.stderr?.on("data", (chunk: Buffer) => {
-    stderr += chunk.toString("utf8");
-  });
-  const code = await waitForExit(failedChild, 5_000);
-  return { code, stderr };
-}
-
-type HostedBridge = {
-  child: ChildProcess;
-  httpUrl: string;
-  webSocketUrl: string;
-  instanceId: string;
-  pairingSecret: string;
-};
-
-async function startHostedBridge(
-  environment: Record<string, string> = {},
-): Promise<HostedBridge> {
-  const hostedPort = await availablePort();
-  const hostedPairingSecret = randomBytes(32).toString("base64url");
-  const hostedInstanceId = randomBytes(16).toString("base64url");
-  const hostedChild = spawn(process.execPath, [tsxCli, ptyServer], {
-    cwd: projectRoot,
-    env: {
-      ...process.env,
-      NODE_ENV: "test",
-      WIZARD_SESSION_TOKEN: randomBytes(32).toString("hex"),
-      WIZARD_ALLOWED_ORIGIN: hostedOrigin,
-      WIZARD_PAIRING_SECRET: hostedPairingSecret,
-      WIZARD_INSTANCE_ID: hostedInstanceId,
-      WIZARD_PTY_PORT: String(hostedPort),
-      WIZARD_WORKSPACE_ROOT: projectRoot,
-      ...environment,
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  await waitForReady(hostedChild);
-  return {
-    child: hostedChild,
-    httpUrl: `http://127.0.0.1:${hostedPort}`,
-    webSocketUrl: `ws://127.0.0.1:${hostedPort}/terminal`,
-    instanceId: hostedInstanceId,
-    pairingSecret: hostedPairingSecret,
-  };
-}
-
-async function hostedSession(
-  bridge: HostedBridge,
-  overrides: Partial<{ version: number; instanceId: string; pairingSecret: string }> = {},
-  origin = hostedOrigin,
-): Promise<Response> {
-  return fetch(`${bridge.httpUrl}/session`, {
-    method: "POST",
-    headers: { Origin: origin, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      version: 1,
-      instanceId: bridge.instanceId,
-      pairingSecret: bridge.pairingSecret,
-      ...overrides,
-    }),
-    cache: "no-store",
-  });
-}
-
 async function startIsolatedBridge(
   idleTimeoutMs: number,
 ): Promise<{
@@ -237,7 +136,7 @@ async function mintTicket(): Promise<string> {
   assert.equal(typeof body.protocol, "string");
   assert.match(
     body.protocol as string,
-    /^terminal-wizard\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/,
+    /^terminal-tutor\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/,
   );
   return body.protocol as string;
 }
@@ -343,236 +242,6 @@ after(async () => {
   await stopChild(child);
 });
 
-test("fails closed when hosted pairing configuration is absent or not canonical", async () => {
-  const missingSecret = await spawnForFailure({
-    WIZARD_ALLOWED_ORIGIN: hostedOrigin,
-    WIZARD_PAIRING_SECRET: "",
-    WIZARD_INSTANCE_ID: randomBytes(16).toString("base64url"),
-  });
-  assert.notEqual(missingSecret.code, 0);
-  assert.match(missingSecret.stderr, /WIZARD_PAIRING_SECRET/);
-
-  const missingInstance = await spawnForFailure({
-    WIZARD_ALLOWED_ORIGIN: hostedOrigin,
-    WIZARD_PAIRING_SECRET: randomBytes(32).toString("base64url"),
-    WIZARD_INSTANCE_ID: "",
-  });
-  assert.notEqual(missingInstance.code, 0);
-  assert.match(missingInstance.stderr, /WIZARD_INSTANCE_ID/);
-
-  const previewOrigin = await spawnForFailure({
-    WIZARD_ALLOWED_ORIGIN: "https://terminal-tutor-preview.vercel.app",
-    WIZARD_PAIRING_SECRET: randomBytes(32).toString("base64url"),
-    WIZARD_INSTANCE_ID: randomBytes(16).toString("base64url"),
-  });
-  assert.notEqual(previewOrigin.code, 0);
-  assert.match(previewOrigin.stderr, /WIZARD_ALLOWED_ORIGIN/);
-
-  const missingWorkspace = await spawnForFailure({
-    WIZARD_ALLOWED_ORIGIN: hostedOrigin,
-    WIZARD_PAIRING_SECRET: randomBytes(32).toString("base64url"),
-    WIZARD_INSTANCE_ID: randomBytes(16).toString("base64url"),
-    WIZARD_WORKSPACE_ROOT: resolve(projectRoot, "does-not-exist"),
-  });
-  assert.notEqual(missingWorkspace.code, 0);
-  assert.match(missingWorkspace.stderr, /WIZARD_WORKSPACE_ROOT/);
-});
-
-test("exchanges one exact hosted pairing capability for one shell ticket", async () => {
-  const hosted = await startHostedBridge({ WIZARD_TEST_PAIRING_TIMEOUT_MS: "2000" });
-  try {
-    const health = await fetch(`${hosted.httpUrl}/health`, { cache: "no-store" });
-    assert.equal(health.status, 200);
-    assert.deepEqual(await health.json(), {
-      ready: true,
-      mode: "hosted",
-      instanceId: hosted.instanceId,
-    });
-
-    assert.equal((await fetch(`${hosted.httpUrl}/session`)).status, 404);
-    assert.equal((await fetch(`${hosted.httpUrl}/session?pair=1`, {
-      method: "POST",
-      headers: { Origin: hostedOrigin, "Content-Type": "application/json" },
-      body: "{}",
-    })).status, 404);
-
-    const hostile = await hostedSession(hosted, {}, "https://evil.example");
-    assert.equal(hostile.status, 404);
-    assert.equal(hostile.headers.get("access-control-allow-origin"), null);
-
-    const invalidPreflight = await fetch(`${hosted.httpUrl}/session`, {
-      method: "OPTIONS",
-      headers: {
-        Origin: hostedOrigin,
-        "Access-Control-Request-Method": "POST",
-        "Access-Control-Request-Headers": "content-type, authorization",
-      },
-    });
-    assert.equal(invalidPreflight.status, 404);
-
-    const preflight = await fetch(`${hosted.httpUrl}/session`, {
-      method: "OPTIONS",
-      headers: {
-        Origin: hostedOrigin,
-        "Access-Control-Request-Method": "POST",
-        "Access-Control-Request-Headers": "content-type",
-      },
-    });
-    assert.equal(preflight.status, 204);
-    assert.equal(preflight.headers.get("access-control-allow-origin"), hostedOrigin);
-    assert.equal(preflight.headers.get("access-control-allow-methods"), "POST");
-    assert.equal(preflight.headers.get("access-control-allow-headers"), "Content-Type");
-    assert.equal(preflight.headers.get("access-control-allow-credentials"), null);
-    assert.equal(preflight.headers.get("cross-origin-resource-policy"), "cross-origin");
-    assert.equal(preflight.headers.get("access-control-allow-private-network"), null);
-
-    const legacyPrivateNetworkPreflight = await fetch(`${hosted.httpUrl}/session`, {
-      method: "OPTIONS",
-      headers: {
-        Origin: hostedOrigin,
-        "Access-Control-Request-Method": "POST",
-        "Access-Control-Request-Headers": "content-type",
-        "Access-Control-Request-Private-Network": "true",
-      },
-    });
-    assert.equal(legacyPrivateNetworkPreflight.status, 204);
-    assert.equal(
-      legacyPrivateNetworkPreflight.headers.get("access-control-allow-private-network"),
-      "true",
-    );
-
-    const oversized = await fetch(`${hosted.httpUrl}/session`, {
-      method: "POST",
-      headers: { Origin: hostedOrigin, "Content-Type": "application/json" },
-      body: JSON.stringify({ padding: "x".repeat(1_100) }),
-    });
-    assert.equal(oversized.status, 400);
-
-    const wrongInstance = await hostedSession(hosted, {
-      instanceId: randomBytes(16).toString("base64url"),
-    });
-    assert.equal(wrongInstance.status, 401);
-    const wrongSecret = await hostedSession(hosted, {
-      pairingSecret: randomBytes(32).toString("base64url"),
-    });
-    assert.equal(wrongSecret.status, 401);
-
-    const exchanges = await Promise.all([hostedSession(hosted), hostedSession(hosted)]);
-    assert.deepEqual(exchanges.map((response) => response.status).sort(), [200, 409]);
-    const acceptedResponse = exchanges.find((response) => response.status === 200);
-    assert.ok(acceptedResponse);
-    assert.equal(acceptedResponse.headers.get("access-control-allow-origin"), hostedOrigin);
-    assert.equal(acceptedResponse.headers.get("cross-origin-resource-policy"), "cross-origin");
-    const acceptedBody = (await acceptedResponse.json()) as {
-      protocol?: unknown;
-      expiresInMs?: unknown;
-    };
-    assert.equal(acceptedBody.expiresInMs, 30_000);
-    assert.equal(typeof acceptedBody.protocol, "string");
-    const ticket = acceptedBody.protocol as string;
-
-    assert.equal((await hostedSession(hosted)).status, 409);
-    const crossSite = await attemptSocket(
-      ticket,
-      "https://evil.example",
-      undefined,
-      hosted.webSocketUrl,
-    );
-    assert.deepEqual(crossSite, { kind: "http", status: 403 });
-
-    const acceptedSocket = await attemptSocket(
-      ticket,
-      hostedOrigin,
-      undefined,
-      hosted.webSocketUrl,
-    );
-    assert.equal(acceptedSocket.kind, "open");
-    if (acceptedSocket.kind !== "open") return;
-    assert.equal(acceptedSocket.socket.protocol, ticket);
-    await startLiveShell(acceptedSocket.socket);
-
-    const environmentOutput = waitForOutput(
-      acceptedSocket.socket,
-      "__TW_HOSTED_ENV__unset:unset",
-    );
-    acceptedSocket.socket.send(JSON.stringify({
-      type: "input",
-      data: "printf '__TW_HOSTED_ENV__%s:%s\\n' \"${WIZARD_PAIRING_SECRET-unset}\" \"${WIZARD_INSTANCE_ID-unset}\"\r",
-    }));
-    await environmentOutput;
-    await closeSocket(acceptedSocket.socket);
-    assert.equal(await waitForExit(hosted.child), 0);
-  } finally {
-    await stopChild(hosted.child);
-  }
-});
-
-test("expires an unused hosted pairing and shuts down safely", async () => {
-  const hosted = await startHostedBridge({ WIZARD_TEST_PAIRING_TIMEOUT_MS: "100" });
-  assert.equal(await waitForExit(hosted.child), 0);
-});
-
-test("closes a hosted socket that does not start a shell", async () => {
-  const hosted = await startHostedBridge({
-    WIZARD_TEST_PAIRING_TIMEOUT_MS: "2000",
-    WIZARD_TEST_START_DEADLINE_MS: "100",
-  });
-  try {
-    const response = await hostedSession(hosted);
-    assert.equal(response.status, 200);
-    const { protocol } = (await response.json()) as { protocol: string };
-    const attempt = await attemptSocket(
-      protocol,
-      hostedOrigin,
-      undefined,
-      hosted.webSocketUrl,
-    );
-    assert.equal(attempt.kind, "open");
-    if (attempt.kind !== "open") return;
-    const closed = new Promise<{ code: number; reason: string }>((resolveClose) => {
-      attempt.socket.once("close", (code, reason) => {
-        resolveClose({ code, reason: reason.toString("utf8") });
-      });
-    });
-    assert.deepEqual(await closed, { code: 1008, reason: "start timeout" });
-    assert.equal(await waitForExit(hosted.child), 0);
-  } finally {
-    await stopChild(hosted.child);
-  }
-});
-
-test("enforces an absolute hosted session deadline", async () => {
-  const hosted = await startHostedBridge({
-    WIZARD_TEST_PAIRING_TIMEOUT_MS: "2000",
-    WIZARD_TEST_START_DEADLINE_MS: "500",
-    WIZARD_TEST_IDLE_TIMEOUT_MS: "1000",
-    WIZARD_TEST_ABSOLUTE_SESSION_MS: "250",
-  });
-  try {
-    const response = await hostedSession(hosted);
-    assert.equal(response.status, 200);
-    const { protocol } = (await response.json()) as { protocol: string };
-    const attempt = await attemptSocket(
-      protocol,
-      hostedOrigin,
-      undefined,
-      hosted.webSocketUrl,
-    );
-    assert.equal(attempt.kind, "open");
-    if (attempt.kind !== "open") return;
-    const closed = new Promise<{ code: number; reason: string }>((resolveClose) => {
-      attempt.socket.once("close", (code, reason) => {
-        resolveClose({ code, reason: reason.toString("utf8") });
-      });
-    });
-    await startLiveShell(attempt.socket);
-    assert.deepEqual(await closed, { code: 1000, reason: "session limit" });
-    assert.equal(await waitForExit(hosted.child), 0);
-  } finally {
-    await stopChild(hosted.child);
-  }
-});
-
 test("prepares node-pty's macOS helper as a regular executable", async (context) => {
   if (process.platform !== "darwin") {
     context.skip("macOS-only node-pty prebuild check");
@@ -588,6 +257,22 @@ test("prepares node-pty's macOS helper as a regular executable", async (context)
   assert.equal(metadata.isFile(), true);
   assert.equal(metadata.isSymbolicLink(), false);
   await access(helper, fsConstants.X_OK);
+});
+
+test("reports local readiness without exposing a remote session POST", async () => {
+  const health = await fetch(`${bridgeHttp}/health`, { cache: "no-store" });
+  assert.equal(health.status, 200);
+  assert.deepEqual(await health.json(), { ready: true, mode: "local" });
+  assert.equal(health.headers.get("access-control-allow-origin"), null);
+  assert.equal((await fetch(`${bridgeHttp}/health`, {
+    headers: { Origin: "https://remote.example" },
+  })).status, 404);
+  assert.equal((await fetch(`${bridgeHttp}/health?unexpected=1`)).status, 404);
+  assert.equal((await fetch(`${bridgeHttp}/session`, {
+    method: "POST",
+    headers: { Origin: browserOrigin, "Content-Type": "application/json" },
+    body: "{}",
+  })).status, 404);
 });
 
 test("enforces the loopback Origin, Host, ticket, and session boundary", async () => {
@@ -607,7 +292,7 @@ test("enforces the loopback Origin, Host, ticket, and session boundary", async (
 
   const tooManyProtocols = await attemptSocket([
     ticket,
-    "terminal-wizard.unexpected",
+    "terminal-tutor.unexpected",
   ]);
   assert.deepEqual(tooManyProtocols, { kind: "http", status: 403 });
 
@@ -775,7 +460,7 @@ test("sanitizes the shell environment and survives a rapid reconnect", async () 
   secondAttempt.socket.send(
     JSON.stringify({
       type: "input",
-      data: 'printf \'__TW_ENV__%s:%s::__TW_CWD__%s\\n\' "${TW_TEST_PARENT_SECRET-unset}" "$TERMINAL_WIZARD" "$PWD"\r',
+      data: 'printf \'__TW_ENV__%s:%s::__TW_CWD__%s\\n\' "${TW_TEST_PARENT_SECRET-unset}" "$TERMINAL_TUTOR" "$PWD"\r',
     }),
   );
   await output;

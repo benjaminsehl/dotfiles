@@ -97,3 +97,13 @@ The first suggested sequence is:
 
 Run `scripts/check-manifest` after editing the catalog. It rejects duplicate
 identifiers and lesson references to tools that do not exist.
+
+After `apply`, launch the local course with:
+
+```bash
+terminal-tutor
+```
+
+The command starts the interface and real-shell bridge on fixed loopback ports,
+waits until both are healthy, and opens Chrome. Keep that terminal window open
+while using Live Mac; `Control-C` stops both owned services cleanly.

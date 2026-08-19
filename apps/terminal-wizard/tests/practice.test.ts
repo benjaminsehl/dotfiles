@@ -50,7 +50,7 @@ const expectedLessonOutput = new Map<string, RegExp>([
   ["z dotfiles", /zoxide would jump/],
   ["fd -e md", /README\.md/],
   ["rg \"TODO\" .", /docs\/TODO\.md:\d+:/],
-  ["bat apps/terminal-wizard/package.json", /"name": "terminal-wizard"/],
+  ["bat apps/terminal-wizard/package.json", /"name": "terminal-tutor"/],
   ["jq '.tools[] | select(.category == \"search\") | .command' manifest/setup.json", /"rg"/],
   ["gs", /WizardTerminal\.tsx/],
   ["gd", /simulated practice change/],

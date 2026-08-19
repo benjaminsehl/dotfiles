@@ -1,66 +1,45 @@
 # Terminal Tutor
 
-A private, interactive field guide to Benjamin’s real developer setup:
+A local, interactive field guide to Benjamin’s real developer setup:
 
 ```text
 Ghostty → zsh + Starship → Herdr → OMP / Codex
-                    └── mise → Node, pnpm, Bun, Go, Python
+                    └── mise → OMP, Codex, Node, pnpm, Bun, Go, Python
 ```
 
-The browser terminal is powered by
+The terminal UI uses
 [`wterm`](https://github.com/vercel-labs/wterm), its libghostty WASM core, and
-`just-bash`. It teaches the declared toolchain in ten short lessons while
-keeping the default experience isolated from the Mac.
+`just-bash`. The app teaches the manifest-declared workstation in ten lessons
+without requiring an account, deployment, pairing service, or remote server.
 
-## Open the hosted tutor with Live Mac
+## Launch it
 
-After applying the dotfiles, run:
-
-```bash
-terminal-wizard --hosted
-```
-
-This starts a one-shot companion on `127.0.0.1:4318`, waits until the exact
-process it launched is ready, and opens the canonical hosted tutor in Chrome
-(or the default browser when Chrome is unavailable). A fresh pairing secret is
-carried in the URL fragment, never sent to Vercel, and removed from the address
-bar by the app. The companion accepts only the canonical hosted Origin and exits
-after the paired Live Mac session. You must still type `LIVE` before a real
-shell starts.
-
-Vercel serves the interface; the browser talks directly to the loopback-only
-companion. Vercel never runs the shell or receives terminal traffic.
-
-## Run entirely locally
-
-To build and serve both the interface and companion from the checkout, run:
+Apply the dotfiles, then run:
 
 ```bash
-terminal-wizard
+terminal-tutor
 ```
 
-The no-argument launcher builds and serves the production-local app. Use
-`terminal-wizard --dev` only while changing the app and you want hot reload.
+The installed launcher:
 
-Or run development mode directly from the repository:
+1. installs dependencies from `package-lock.json` only when the lock changes;
+2. rebuilds only when the app or dotfiles revision changes;
+3. trims build and test packages after a successful build, leaving only the
+   63 MiB native PTY/WebSocket runtime;
+4. starts the UI on `127.0.0.1:4317` and the PTY bridge on `127.0.0.1:4318`;
+5. waits until both services are healthy; and
+6. opens the fixed local URL in Chrome.
+
+Keep the launching terminal window open. `Control-C` stops both services.
+
+For app development:
 
 ```bash
-cd apps/terminal-wizard
-npm ci
-npm run dev
+terminal-tutor --dev
 ```
 
-Open <http://127.0.0.1:4317>. The fixed local origin preserves a fully local
-development and recovery path alongside the hosted pairing flow.
-
-Production-local mode directly from the repository:
-
-```bash
-npm run build
-npm start
-```
-
-Node 24 is the declared runtime; `engines.node` allows Node 22.13 or newer.
+Use `terminal-tutor --production` to force a clean production build or
+`terminal-tutor --check` to run the full release gate.
 
 ## Three levels of access
 
@@ -72,45 +51,59 @@ Node 24 is the declared runtime; `engines.node` allows Node 22.13 or newer.
 - The terminal parser is libghostty, so color, Unicode, and escape handling
   closely match Ghostty even though the shell itself is simulated.
 - Lesson buttons insert commands but never press Return.
-- Each submitted command executes exactly once. Only an exact, required command
-  that exits successfully in the active lesson earns progress; failed commands
-  remain visibly incomplete.
-- Core rows can still be explored in Live Mac, but Practice is the source of
-  completion credit until Live has an authenticated command-result boundary.
+- Each submitted command executes exactly once. Only an exact required command
+  that exits successfully in the active lesson earns progress.
+
+Practice models the declared setup. It does not claim to prove the live Mac’s
+current state; use Live Mac for deliberate verification.
 
 ### Read-only folder snapshot
 
 Chrome can optionally expose a user-selected project through the File System
-Access API. Raw handles stay in a private module closure; React and wterm receive
-only frozen text DTOs mounted below `/workspace`.
+Access API. Raw handles remain module-private; React and wterm receive only
+frozen text records mounted below `/workspace`.
 
-The scanner asks for read access only, limits depth, entries, individual files,
-and total decoded bytes, rejects binary/invalid UTF-8, removes terminal controls,
-and blocks or redacts common credential patterns. Heuristics cannot recognize
-every possible secret, so choose a narrow project or dotfiles directory—never
-the home directory. The browser works from a point-in-time copy; use **Refresh
-snapshot** in the folder card after files change on disk.
+The scanner requests read access only, bounds depth, entries, individual files,
+and total decoded bytes, rejects binary or invalid UTF-8, strips terminal
+controls, and blocks or redacts common credential patterns. Heuristics cannot
+recognize every secret, so choose a narrow project or dotfiles directory—never
+your home directory. The browser uses a point-in-time copy; choose **Refresh
+Practice snapshot** after files change on disk.
 
 ### Live Mac (explicit opt-in)
 
-Live Mac is a real `/bin/zsh -l` PTY with the user’s full permissions. Opening
-it requires typing `LIVE`. The shell starts at the checked-out dotfiles root so
-course paths match the in-memory dotfiles model used by Practice. Live exercises
-are optional verification: they do not earn completion until the bridge can
-report a trustworthy command result rather than merely observing keystrokes.
-The bridge:
+Live Mac opens a real `/bin/zsh -l` PTY with the user’s full permissions. You
+must freshly type `LIVE` before each activation. The shell starts at the
+dotfiles root so course paths match Practice. Live exploration intentionally
+does not earn course credit until command outcomes can be authenticated.
+
+The local bridge:
 
 - binds only to `127.0.0.1:4318`;
-- checks the exact browser Origin, HTTP Host, WebSocket path, and loopback peer;
-- requires a launcher-created, single-use pairing secret before minting a ticket;
+- checks the exact local Origin, Host, WebSocket path, and loopback peer;
 - mints a single-use 256-bit protocol ticket that expires after 30 seconds;
-- allows one active session, disables compression, caps messages and buffered
-  output, and closes after 20 minutes without keyboard activity;
-- passes an explicit environment allowlist rather than browser/server secrets;
-- never reconnects automatically.
+- allows one active session, disables compression, and caps messages and
+  buffered output;
+- closes after 20 minutes without keyboard activity and has start and absolute
+  session deadlines;
+- passes an explicit environment allowlist rather than server or developer
+  secrets; and
+- never reconnects or executes lesson commands automatically.
 
-Treat this mode exactly like a Ghostty window. The browser UI is not a sandbox
-once Live Mac is connected.
+Treat Live Mac exactly like a Ghostty window. The browser UI is not a sandbox
+once it is connected.
+
+## Local state
+
+Course progress stays in `localStorage`. A selected folder handle may be stored
+in IndexedDB and still requires Chrome’s browser permission. Use **Forget
+folder** in the app and Chrome site settings to remove both the remembered
+handle and browser-level permission.
+
+There is no analytics, cloud sync, hosted Tutor, or remote terminal endpoint.
+The only network capability in the UI is the loopback connection to the owned
+local PTY service; commands entered in Live Mac retain their normal shell
+network access.
 
 ## Verification
 
@@ -118,33 +111,11 @@ once Live Mac is connected.
 npm run check
 ```
 
-This runs TypeScript, ESLint, policy/unit tests, browser-component tests for
-permission races, Live consent, and progress behavior, adversarial PTY boundary
-tests, a production build, rendered HTML and security-header assertions, local
-WASM checks, and both runtime and full dependency audits.
-
-`npm audit --omit=dev` is clean. The full audit has one documented upstream
-exception: `vinext@1.0.0-beta.5` depends on `image-size@2.0.2`, whose ICNS and
-JXL/HEIF parsers have infinite-loop advisories. Terminal Tutor configures no
-image optimizer. Vinext imports `image-size` only from its metadata-route build
-helper; this app defines no file-based metadata image routes and accepts no
-user-controlled build inputs, so those parsers are not reachable through the
-app. `scripts/audit.mjs` allows only those exact advisories and fails closed on
-errors, malformed reports, or anything new. Do not run `npm audit fix --force`;
-npm currently proposes a breaking vinext downgrade.
-
-## Hosted Practice and paired Live Mac
-
-The hosted app includes the in-memory Practice terminal and optional read-only
-folder snapshots. It has no analytics, account, cloud sync, or remote shell
-endpoint. Run `terminal-wizard --hosted` to open it with a one-time pairing for
-the loopback-only companion. Without that pairing, hosted Practice remains
-available and no request is made to the Mac.
-
-Progress is `localStorage`; a selected folder handle can be stored in IndexedDB
-and still requires the permission state Chrome grants. Use
-“Forget folder” in the app and Chrome site settings when you want to remove both
-the remembered handle and browser-level permission.
+The gate runs TypeScript, ESLint, launcher and policy tests, unit and component
+tests for folder races, consent, and progress, adversarial PTY boundary tests,
+a production Vite build, local HTML/security-header and WASM checks, and both
+runtime and full dependency audits. Lifecycle-script policy fails closed on
+malformed npm output or an unreviewed package.
 
 ## Key dependencies
 
@@ -152,11 +123,9 @@ the remembered handle and browser-level permission.
 - libghostty core built from Ghostty 1.3.1
 - `just-bash` 2.14.5
 - React 19.2.8
-- Vite 8.2.1 / vinext 1.0.0-beta.5
+- Vite 8.2.1
 - `node-pty` 1.1.0 / `ws` 8.21.3
 
-The generated social card is project-local at `public/og-terminal-tutor.png`; runtime fonts,
-WASM, CSS, and scripts are all served locally.
-
-Redistributed WASM attribution and complete license texts are in
+Runtime fonts, WASM, CSS, and scripts are all served from the loopback-only
+local app. Redistributed WASM attribution and complete license texts are in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

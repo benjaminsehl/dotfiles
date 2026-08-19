@@ -22,7 +22,7 @@
     {"id":"codex","name":"Codex CLI","command":"codex","version":"0.147.0","category":"agent","purpose":"OpenAI coding agent with on-request approvals delegated to the automatic reviewer"},
     {"id":"git","name":"Git","command":"git","version":"2.55.0","category":"source-control","purpose":"Version control"},
     {"id":"gh","name":"GitHub CLI","command":"gh","version":"2.97.0","category":"source-control","purpose":"GitHub repositories, issues, pull requests, and authentication"},
-    {"id":"mise","name":"mise","command":"mise","version":"2026.8.4","category":"runtime","purpose":"Pinned language runtimes with a seven-day release gate"},
+    {"id":"mise","name":"mise","command":"mise","version":"2026.8.5","category":"runtime","purpose":"Pinned language runtimes with a seven-day release gate"},
     {"id":"node","name":"Node.js","command":"node","version":"24.19.0","category":"runtime","purpose":"JavaScript runtime"},
     {"id":"npm","name":"npm","command":"npm","version":"11.17.0","category":"runtime","purpose":"Node package manager"},
     {"id":"pnpm","name":"pnpm","command":"pnpm","version":"11.20.0","category":"runtime","purpose":"Fast workspace-aware JavaScript package manager"},

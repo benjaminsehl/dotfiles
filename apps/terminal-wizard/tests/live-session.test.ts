@@ -1,128 +1,59 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  LIVE_HEALTH_URL,
   LIVE_SESSION_URL,
-  LiveTicketError,
   parseLiveServerMessage,
-  requestLiveHealth,
   requestLiveTicket,
 } from "../app/lib/live-session.ts";
 
-const pairing = {
-  version: 1 as const,
-  instanceId: "A".repeat(22),
-  pairingSecret: "b".repeat(43),
-};
-const ticket = `terminal-wizard.${"c".repeat(43)}.${"d".repeat(43)}`;
+const ticket = `terminal-tutor.${"c".repeat(43)}.${"d".repeat(43)}`;
 
-test("requests and validates the paired companion before spending the capability", async () => {
-  let capturedUrl = "";
-  let capturedInit: RequestInit | undefined;
-  await requestLiveHealth(
-    pairing,
-    new AbortController().signal,
-    (async (url: string | URL | Request, init?: RequestInit) => {
-      capturedUrl = String(url);
-      capturedInit = init;
-      return new Response(JSON.stringify({ ready: true, mode: "hosted", instanceId: pairing.instanceId }));
-    }) as typeof fetch,
-  );
-
-  assert.equal(capturedUrl, LIVE_HEALTH_URL);
-  assert.equal(capturedInit?.method, "GET");
-  assert.equal(capturedInit?.credentials, "omit");
-  assert.equal(capturedInit?.cache, "no-store");
-  assert.equal(capturedInit?.redirect, "error");
-  assert.equal(capturedInit?.referrerPolicy, "no-referrer");
-  assert.equal(capturedInit?.targetAddressSpace, "loopback");
-  assert.equal(capturedInit?.body, undefined);
-});
-
-test("rejects a health response from a different companion", async () => {
-  await assert.rejects(
-    requestLiveHealth(
-      pairing,
-      new AbortController().signal,
-      (async () => new Response(JSON.stringify({
-        ready: true,
-        mode: "hosted",
-        instanceId: "z".repeat(22),
-      }))) as typeof fetch,
-    ),
-    /different Terminal Tutor companion/,
-  );
-});
-
-test("requests a hosted ticket with an exact, credential-free loopback POST", async () => {
+test("requests one local ticket with an exact credential-free loopback GET", async () => {
   let capturedUrl = "";
   let capturedInit: RequestInit | undefined;
   const result = await requestLiveTicket(
-    pairing,
     new AbortController().signal,
     (async (url: string | URL | Request, init?: RequestInit) => {
       capturedUrl = String(url);
       capturedInit = init;
-      return new Response(JSON.stringify({ protocol: ticket, expiresInMs: 30_000 }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(JSON.stringify({ protocol: ticket, expiresInMs: 30_000 }));
     }) as typeof fetch,
   );
 
   assert.equal(result, ticket);
   assert.equal(capturedUrl, LIVE_SESSION_URL);
-  assert.equal(capturedInit?.method, "POST");
-  assert.deepEqual(capturedInit?.headers, { "Content-Type": "application/json" });
+  assert.equal(capturedInit?.method, "GET");
   assert.equal(capturedInit?.credentials, "omit");
   assert.equal(capturedInit?.cache, "no-store");
   assert.equal(capturedInit?.redirect, "error");
   assert.equal(capturedInit?.referrerPolicy, "no-referrer");
-  assert.equal(capturedInit?.targetAddressSpace, "loopback");
-  assert.deepEqual(JSON.parse(String(capturedInit?.body)), pairing);
-});
-
-test("keeps the fully local path compatible without a pairing body", async () => {
-  let capturedInit: RequestInit | undefined;
-  const result = await requestLiveTicket(
-    null,
-    new AbortController().signal,
-    (async (_url: string | URL | Request, init?: RequestInit) => {
-      capturedInit = init;
-      return new Response(JSON.stringify({ protocol: ticket, expiresInMs: 30_000 }));
-    }) as typeof fetch,
-  );
-  assert.equal(result, ticket);
-  assert.equal(capturedInit?.method, "GET");
   assert.equal(capturedInit?.body, undefined);
   assert.equal(capturedInit?.headers, undefined);
+  assert.equal(Object.hasOwn(capturedInit ?? {}, "targetAddressSpace"), false);
 });
 
-test("fails closed on pairing, busy, unavailable, and malformed responses", async () => {
+test("fails closed on busy, unavailable, and malformed ticket responses", async () => {
   const requestWith = (response: Response) => requestLiveTicket(
-    pairing,
     new AbortController().signal,
     (async () => response) as typeof fetch,
   );
-  await assert.rejects(requestWith(new Response("{}", { status: 410 })), /pairing expired/);
+
   await assert.rejects(requestWith(new Response("{}", { status: 409 })), /already in use/);
-  await assert.rejects(requestWith(new Response("{}", { status: 500 })), /companion is unavailable/);
+  await assert.rejects(requestWith(new Response("{}", { status: 500 })), /local Live Mac service is unavailable/);
   await assert.rejects(
-    requestWith(new Response(JSON.stringify({ protocol: "terminal-wizard.bad", expiresInMs: 30_000 }))),
+    requestWith(new Response(JSON.stringify({ protocol: "terminal-tutor.bad", expiresInMs: 30_000 }))),
     /invalid session ticket/,
   );
   await assert.rejects(
     requestWith(new Response(JSON.stringify({ protocol: ticket, expiresInMs: 1 }))),
     /invalid session ticket/,
   );
-
   await assert.rejects(
-    requestWith(new Response("{}", { status: 410 })),
-    (error: unknown) => error instanceof LiveTicketError && error.pairingFinal,
-  );
-  await assert.rejects(
-    requestWith(new Response("{}", { status: 500 })),
-    (error: unknown) => error instanceof LiveTicketError && !error.pairingFinal,
+    requestWith(new Response(JSON.stringify({
+      protocol: `wrong-prefix.${"c".repeat(43)}.${"d".repeat(43)}`,
+      expiresInMs: 30_000,
+    }))),
+    /invalid session ticket/,
   );
 });
 

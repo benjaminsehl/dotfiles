@@ -4,11 +4,11 @@ set -euo pipefail
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$REPO_ROOT"
 
-bash -n apply bootstrap bin/configure-codex bin/dev-update bin/dev-doctor bin/terminal-wizard scripts/check-links scripts/check-manifest scripts/check-modes scripts/sync-manifest-versions scripts/sync-omp-completion
+bash -n apply bootstrap bin/configure-codex bin/dev-update bin/dev-doctor bin/terminal-tutor scripts/check-links scripts/check-manifest scripts/check-modes scripts/sync-manifest-versions scripts/sync-omp-completion
 zsh -n config/shell/profile config/shell/zprofile config/shell/zshrc config/shell/zlogin
 
 if command -v shellcheck >/dev/null 2>&1; then
-  shellcheck apply bootstrap bin/configure-codex bin/dev-update bin/dev-doctor bin/terminal-wizard scripts/check-links scripts/check-manifest scripts/check-modes scripts/sync-manifest-versions scripts/sync-omp-completion
+  shellcheck apply bootstrap bin/configure-codex bin/dev-update bin/dev-doctor bin/terminal-tutor scripts/check-links scripts/check-manifest scripts/check-modes scripts/sync-manifest-versions scripts/sync-omp-completion
 fi
 
 if rg -n 'can1357/tap|brew "(?:can1357/tap/)?omp"' Brewfile; then
@@ -58,11 +58,12 @@ if rg -n 'omp completions' config/shell/zshrc; then
   exit 1
 fi
 
-launcher_help=$(bin/terminal-wizard --help)
-grep -Fq 'Usage: terminal-wizard' <<<"$launcher_help"
+launcher_help=$(bin/terminal-tutor --help)
+grep -Fq 'Usage: terminal-tutor' <<<"$launcher_help"
 grep -Fq 'Terminal Tutor' <<<"$launcher_help"
 grep -Fq -- '--dev' <<<"$launcher_help"
-grep -Fq 'With no option, builds and starts the production-local server' <<<"$launcher_help"
+grep -Fq 'The launcher keeps only the small production runtime after each build, waits' <<<"$launcher_help"
+grep -Fq 'for the local UI and shell service, then opens Chrome.' <<<"$launcher_help"
 
 scripts/check-manifest
 
@@ -141,6 +142,8 @@ second_codex_checksum=$(shasum -a 256 "$temp_home/.codex/config.toml")
 
 [[ $first_links == "$second_links" ]]
 [[ $first_codex_checksum == "$second_codex_checksum" ]]
+[[ $(readlink "$temp_home/.local/bin/terminal-tutor") == "$REPO_ROOT/bin/terminal-tutor" ]]
+[[ $(readlink "$temp_home/.local/bin/terminal-wizard") == "$REPO_ROOT/bin/terminal-tutor" ]]
 [[ $(find "$temp_home/.config/dotfiles-backups" -name .zshrc -type f | wc -l | tr -d ' ') == 1 ]]
 [[ $(find "$temp_home/.config/dotfiles-backups" -path '*/.codex/config.toml' -type f | wc -l | tr -d ' ') == 1 ]]
 general_backup_file=$(find "$temp_home/.config/dotfiles-backups" -name .zshrc -type f -print -quit)

@@ -14,12 +14,9 @@ import { sanitizeTerminalText } from "@/app/lib/file-system";
 import { basePracticeFiles, PRACTICE_ROOT, promptFor, registerPracticeCommands } from "@/app/lib/practice";
 import { PracticeShell } from "@/app/lib/practice-shell";
 import type { LessonCommandResult } from "@/app/lib/lesson-progress";
-import type { HostedPairing } from "@/app/lib/live-origin";
 import {
   LIVE_SOCKET_URL,
-  LiveTicketError,
   parseLiveServerMessage,
-  requestLiveHealth,
   requestLiveTicket,
 } from "@/app/lib/live-session";
 
@@ -33,10 +30,8 @@ export type WizardTerminalHandle = {
 type WizardTerminalProps = {
   lessonId: string;
   mode: TerminalMode;
-  pairing?: HostedPairing | null;
   files?: Record<string, string>;
   onCommand(result: LessonCommandResult): void;
-  onPairingConsumed?(): void;
 };
 
 function safeWorkspaceFiles(files: Record<string, string>): Record<string, string> {
@@ -65,7 +60,7 @@ function dimensions(instance: TerminalHandle | null): { cols: number; rows: numb
 
 export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalProps>(
   function WizardTerminal(
-    { lessonId, mode, pairing = null, files = {}, onCommand, onPairingConsumed },
+    { lessonId, mode, files = {}, onCommand },
     forwardedRef,
   ) {
     const terminalRef = useRef<TerminalHandle>(null);
@@ -74,7 +69,6 @@ export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalPro
     const liveAbortRef = useRef<AbortController | null>(null);
     const liveGenerationRef = useRef(0);
     const onCommandRef = useRef(onCommand);
-    const onPairingConsumedRef = useRef(onPairingConsumed);
     const lessonIdRef = useRef(lessonId);
     const [core, setCore] = useState<GhosttyCore | null>(null);
     const [status, setStatus] = useState<"loading" | "connecting" | "ready" | "error">("loading");
@@ -83,10 +77,6 @@ export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalPro
     useEffect(() => {
       onCommandRef.current = onCommand;
     }, [onCommand]);
-
-    useEffect(() => {
-      onPairingConsumedRef.current = onPairingConsumed;
-    }, [onPairingConsumed]);
 
     useEffect(() => {
       lessonIdRef.current = lessonId;
@@ -159,32 +149,14 @@ export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalPro
       const controller = new AbortController();
       liveAbortRef.current = controller;
       let timedOut = false;
-      let timeoutPhase: "permission" | "session" = pairing ? "permission" : "session";
-      let timeout = 0;
-      const armTimeout = (phase: "permission" | "session", durationMs: number) => {
-        window.clearTimeout(timeout);
-        timeoutPhase = phase;
-        timeout = window.setTimeout(() => {
-          timedOut = true;
-          controller.abort(`Live Mac ${phase} timed out`);
-        }, durationMs);
-      };
-      armTimeout(timeoutPhase, pairing ? 120_000 : 10_000);
+      const timeout = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort("Live Mac session timed out");
+      }, 10_000);
       setStatus("connecting");
-      setStatusMessage(
-        pairing
-          ? "Allow Local Network Access in Chrome to connect to this Mac…"
-          : "Requesting a one-time Live Mac ticket…",
-      );
+      setStatusMessage("Requesting a one-time Live Mac ticket…");
       try {
-        if (pairing) {
-          await requestLiveHealth(pairing, controller.signal);
-          if (controller.signal.aborted || liveGenerationRef.current !== generation) return;
-          setStatusMessage("Requesting a one-time Live Mac ticket…");
-          armTimeout("session", 10_000);
-        }
-        const protocol = await requestLiveTicket(pairing, controller.signal);
-        if (pairing) onPairingConsumedRef.current?.();
+        const protocol = await requestLiveTicket(controller.signal);
         if (controller.signal.aborted || liveGenerationRef.current !== generation) return;
         const socket = new WebSocket(LIVE_SOCKET_URL, protocol);
         if (controller.signal.aborted || liveGenerationRef.current !== generation) {
@@ -245,17 +217,10 @@ export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalPro
         });
       } catch (error) {
         if (liveGenerationRef.current !== generation || (controller.signal.aborted && !timedOut)) return;
-        if (pairing && error instanceof LiveTicketError && error.pairingFinal) {
-          onPairingConsumedRef.current?.();
-        }
         setStatus("error");
         setStatusMessage(
           timedOut
-            ? pairing && timeoutPhase === "permission"
-              ? "Chrome did not grant Local Network Access in time. In Chrome site controls, allow Local Network Access for Terminal Tutor, then return to Practice and try again."
-              : "The local companion did not respond. Run terminal-wizard --hosted again."
-            : pairing && error instanceof TypeError
-              ? "Chrome blocked access to this Mac. In Chrome site controls, allow Local Network Access for Terminal Tutor, then return to Practice and try again."
+            ? "The local Live Mac service did not respond. Restart Terminal Tutor and try again."
             : error instanceof Error
               ? error.message
               : "Could not start Live Mac",
@@ -263,7 +228,7 @@ export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalPro
       } finally {
         window.clearTimeout(timeout);
       }
-    }, [pairing]);
+    }, []);
 
     const handleReady = useCallback(async () => {
       if (mode === "live") {

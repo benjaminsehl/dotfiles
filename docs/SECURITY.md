@@ -34,5 +34,12 @@ Bootstrap enables `.githooks/pre-commit` only for this checkout. It does not set
 a global `core.hooksPath`, which would interfere with hooks owned by other
 repositories.
 
+Terminal Tutor is local-only. Its interface binds to `127.0.0.1:4317` and its
+PTY service to `127.0.0.1:4318`; the bridge rejects other Hosts, Origins,
+WebSocket paths, and non-loopback peers. Practice never starts a native process.
+Live Mac requires freshly typed consent and a single-use short-lived ticket,
+then runs with the same user permissions as Ghostty. There is no hosted Tutor,
+cloud relay, pairing URL, telemetry, or remote shell endpoint.
+
 If a secret is ever committed, removing the line is not enough. Revoke or
 rotate the credential first, then remove it from Git history.

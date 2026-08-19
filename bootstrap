@@ -173,7 +173,8 @@ sources=(
   "$REPO_ROOT/bin/dev-update"
   "$REPO_ROOT/bin/dev-doctor"
   "$REPO_ROOT/bin/configure-codex"
-  "$REPO_ROOT/bin/terminal-wizard"
+  "$REPO_ROOT/bin/terminal-tutor"
+  "$REPO_ROOT/bin/terminal-tutor"
 )
 targets=(
   "$TARGET_HOME/.profile"
@@ -192,6 +193,7 @@ targets=(
   "$TARGET_HOME/.local/bin/dev-update"
   "$TARGET_HOME/.local/bin/dev-doctor"
   "$TARGET_HOME/.local/bin/configure-codex"
+  "$TARGET_HOME/.local/bin/terminal-tutor"
   "$TARGET_HOME/.local/bin/terminal-wizard"
 )
 

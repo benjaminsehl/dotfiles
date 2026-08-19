@@ -6,7 +6,6 @@ const ghostty = vi.hoisted(() => ({
 }));
 
 const liveSession = vi.hoisted(() => ({
-  requestLiveHealth: vi.fn(),
   requestLiveTicket: vi.fn(),
 }));
 
@@ -35,67 +34,52 @@ vi.mock("@/app/lib/live-session", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/app/lib/live-session")>();
   return {
     ...original,
-    requestLiveHealth: liveSession.requestLiveHealth,
     requestLiveTicket: liveSession.requestLiveTicket,
   };
 });
 
 import { WizardTerminal } from "@/app/components/WizardTerminal";
-import { LiveTicketError } from "@/app/lib/live-session";
+import { LIVE_SOCKET_URL } from "@/app/lib/live-session";
 
-const pairing = Object.freeze({
-  version: 1 as const,
-  instanceId: "a".repeat(22),
-  pairingSecret: "b".repeat(43),
-});
-
-const ticket = `terminal-wizard.${"c".repeat(43)}.${"d".repeat(43)}`;
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, resolve, reject };
-}
+const ticket = `terminal-tutor.${"c".repeat(43)}.${"d".repeat(43)}`;
 
 class FakeWebSocket {
   static readonly OPEN = 1;
+  static instances: FakeWebSocket[] = [];
   readonly protocol: string;
+  readonly url: string;
   readonly readyState = 0;
   readonly close = vi.fn();
   readonly send = vi.fn();
   readonly addEventListener = vi.fn();
 
-  constructor(_url: string, protocol: string | string[]) {
+  constructor(url: string, protocol: string | string[]) {
+    this.url = url;
     this.protocol = Array.isArray(protocol) ? protocol[0] ?? "" : protocol;
+    FakeWebSocket.instances.push(this);
   }
 }
 
-async function renderLive(onPairingConsumed = vi.fn()) {
+async function renderLive() {
   render(
     <WizardTerminal
       lessonId="orientation"
       mode="live"
-      pairing={pairing}
       onCommand={vi.fn()}
-      onPairingConsumed={onPairingConsumed}
     />,
   );
   await act(async () => {
     await Promise.resolve();
   });
-  return {
-    onPairingConsumed,
-    start: screen.getByRole("button", { name: "Start terminal" }),
-  };
+  return screen.getByRole("button", { name: "Start terminal" });
 }
 
 beforeEach(() => {
+  FakeWebSocket.instances = [];
+  ghostty.load.mockReset();
   ghostty.load.mockResolvedValue({});
-  liveSession.requestLiveHealth.mockResolvedValue(undefined);
+  liveSession.requestLiveTicket.mockReset();
+  liveSession.requestLiveTicket.mockResolvedValue(ticket);
   vi.stubGlobal("WebSocket", FakeWebSocket);
 });
 
@@ -106,71 +90,54 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("hosted Live Mac permission and pairing lifecycle", () => {
-  it("keeps the one-time pairing while Chrome permission is pending and consumes it only after ticket success", async () => {
-    const exchange = deferred<string>();
-    liveSession.requestLiveTicket.mockReturnValue(exchange.promise);
-    const { onPairingConsumed, start } = await renderLive();
+describe("local Live Mac lifecycle", () => {
+  it("requests one local ticket and opens the loopback WebSocket", async () => {
+    const start = await renderLive();
 
     fireEvent.click(start);
-    expect(await screen.findByText("Allow Local Network Access in Chrome to connect to this Mac…")).toBeTruthy();
-    expect(onPairingConsumed).not.toHaveBeenCalled();
 
-    exchange.resolve(ticket);
-    await waitFor(() => expect(onPairingConsumed).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(liveSession.requestLiveTicket).toHaveBeenCalledTimes(1));
+    expect(liveSession.requestLiveTicket.mock.calls[0][0]).toBeInstanceOf(AbortSignal);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    expect(FakeWebSocket.instances[0].url).toBe(LIVE_SOCKET_URL);
+    expect(FakeWebSocket.instances[0].protocol).toBe(ticket);
+    expect(screen.queryByText(/Local Network Access|hosted|Vercel/i)).toBeNull();
   });
 
-  it("retains the pairing and gives an actionable retry message when Chrome blocks loopback access", async () => {
-    liveSession.requestLiveTicket.mockRejectedValue(new TypeError("Failed to fetch"));
-    const { onPairingConsumed, start } = await renderLive();
+  it("surfaces an actionable local service error", async () => {
+    liveSession.requestLiveTicket.mockRejectedValue(
+      new Error("The local Live Mac service is unavailable. Restart Terminal Tutor and try again."),
+    );
+    const start = await renderLive();
 
     fireEvent.click(start);
 
     expect(await screen.findByText(
-      "Chrome blocked access to this Mac. In Chrome site controls, allow Local Network Access for Terminal Tutor, then return to Practice and try again.",
+      "The local Live Mac service is unavailable. Restart Terminal Tutor and try again.",
     )).toBeTruthy();
-    expect(onPairingConsumed).not.toHaveBeenCalled();
+    expect(FakeWebSocket.instances).toHaveLength(0);
   });
 
-  it("clears a pairing the companion has definitively rejected", async () => {
-    liveSession.requestLiveTicket.mockRejectedValue(
-      new LiveTicketError("This pairing expired. Run terminal-wizard --hosted again.", true),
-    );
-    const { onPairingConsumed, start } = await renderLive();
-
-    fireEvent.click(start);
-
-    expect(await screen.findByText("This pairing expired. Run terminal-wizard --hosted again.")).toBeTruthy();
-    expect(onPairingConsumed).toHaveBeenCalledTimes(1);
-  });
-
-  it("allows two minutes for the Chrome permission prompt instead of failing after ten seconds", async () => {
+  it("times out a stalled local ticket request after ten seconds", async () => {
     vi.useFakeTimers();
-    liveSession.requestLiveHealth.mockImplementation((_pairing, signal: AbortSignal) => new Promise<void>((_resolve, reject) => {
-      signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    liveSession.requestLiveTicket.mockImplementation((signal: AbortSignal) => new Promise<string>((_resolve, reject) => {
+      signal.addEventListener(
+        "abort",
+        () => reject(new DOMException("Aborted", "AbortError")),
+        { once: true },
+      );
     }));
-    const { onPairingConsumed, start } = await renderLive();
+    const start = await renderLive();
 
     fireEvent.click(start);
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(screen.getByText("Allow Local Network Access in Chrome to connect to this Mac…")).toBeTruthy();
-
     await act(async () => {
       vi.advanceTimersByTime(10_000);
       await Promise.resolve();
     });
-    expect(screen.queryByText(/did not grant Local Network Access in time/)).toBeNull();
-    expect(onPairingConsumed).not.toHaveBeenCalled();
 
-    await act(async () => {
-      vi.advanceTimersByTime(110_000);
-      await Promise.resolve();
-    });
     expect(screen.getByText(
-      "Chrome did not grant Local Network Access in time. In Chrome site controls, allow Local Network Access for Terminal Tutor, then return to Practice and try again.",
+      "The local Live Mac service did not respond. Restart Terminal Tutor and try again.",
     )).toBeTruthy();
-    expect(onPairingConsumed).not.toHaveBeenCalled();
+    expect(FakeWebSocket.instances).toHaveLength(0);
   });
 });

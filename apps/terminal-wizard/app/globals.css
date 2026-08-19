@@ -845,10 +845,6 @@ a { color: inherit; }
 .danger-button { padding: 10px 12px; border: 1px solid var(--terminal-border); background: var(--terminal-panel); color: var(--text-soft); font-size: 9px; font-weight: 700; cursor: pointer; }
 .danger-button { border-color: var(--red); background: rgba(243, 139, 168, 0.11); color: var(--red); }
 .danger-button:disabled { opacity: 0.35; cursor: not-allowed; }
-.pairing-dialog { border-color: var(--cyan); box-shadow: 8px 8px 0 rgba(148, 226, 213, 0.14); }
-.pairing-orbit { border-color: var(--cyan); color: var(--cyan); font-size: 14px; }
-.pairing-command { margin: 17px 0; padding: 14px 16px; overflow-x: auto; border: 1px solid rgba(148, 226, 213, 0.32); background: var(--terminal-deep); color: var(--green); font-size: 13px; line-height: 1.4; }
-.pairing-dialog .dialog-actions { grid-template-columns: 1fr; }
 
 @media (max-width: 1120px) {
   .tutorial-workspace { grid-template-columns: minmax(320px, 40%) minmax(0, 60%); }

@@ -1,63 +1,60 @@
 import assert from "node:assert/strict";
-import { access, readFile, stat } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { request } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { isLoopbackAddress, startStaticServer } from "../scripts/run-local.mjs";
 
-async function render() {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
+let server;
+let origin;
 
-  return worker.fetch(
-    new Request("http://127.0.0.1:4317/", { headers: { accept: "text/html" } }),
-    { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
-    { waitUntil() {}, passThroughOnException() {} },
-  );
+function requestStatus({ path = "/", host }) {
+  const target = new URL(origin);
+  return new Promise((resolve, reject) => {
+    const clientRequest = request({
+      hostname: target.hostname,
+      port: target.port,
+      path,
+      headers: host ? { Host: host } : undefined,
+    }, (response) => {
+      response.resume();
+      response.once("end", () => resolve(response.statusCode));
+    });
+    clientRequest.once("error", reject);
+    clientRequest.end();
+  });
 }
 
-async function renderHosted() {
-  const previousVercelUrl = process.env.VERCEL_URL;
-  process.env.VERCEL_URL = "terminal-tutor.example.vercel.app";
-  try {
-    const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-    workerUrl.searchParams.set("hosted-test", `${process.pid}-${Date.now()}`);
-    const { default: worker } = await import(workerUrl.href);
-    return worker.fetch(
-      new Request("https://terminal-tutor.example.vercel.app/", { headers: { accept: "text/html" } }),
-      { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
-      { waitUntil() {}, passThroughOnException() {} },
-    );
-  } finally {
-    if (previousVercelUrl === undefined) delete process.env.VERCEL_URL;
-    else process.env.VERCEL_URL = previousVercelUrl;
-  }
-}
+test.before(async () => {
+  server = await startStaticServer({ port: 0 });
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  origin = `http://127.0.0.1:${address.port}`;
+});
 
-test("server-renders the compact Terminal Tutor learning shell", async () => {
-  const response = await render();
+test.after(async () => {
+  await new Promise((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  });
+});
+
+test("serves the local-only Terminal Tutor application shell", async () => {
+  const response = await fetch(origin);
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
   assert.match(html, /<title>Terminal Tutor · Own your Mac CLI<\/title>/i);
-  assert.match(html, /og-terminal-tutor\.png/);
-  assert.match(html, /aria-label="Terminal Tutor"/);
-  assert.match(html, /aria-label="Lesson navigation"/);
-  assert.match(html, /Choose lesson/);
-  assert.match(html, /aria-label="Previous lesson(?::[^"]+)?"/);
-  assert.match(html, /aria-label="Next lesson(?::[^"]+)?"/);
-  assert.match(html, /Know what is actually running/);
-  assert.match(html, /Practice/);
-  assert.match(html, /Live Mac/);
-  assert.match(html, /aria-label="Terminal workspace"/);
-  assert.match(html, /aria-controls="folder-panel"[^>]*aria-haspopup="dialog"/);
-  assert.match(html, /aria-label="Practice files:/);
-  assert.doesNotMatch(html, /window-dots|Terminal Wizard/);
-  assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/i);
-  assert.doesNotMatch(html, /fonts\.googleapis|googletagmanager|segment\.com/i);
+  assert.match(html, /name="description"/);
+  assert.match(html, /<div id="root"><\/div>/);
+  assert.match(html, /<script[^>]+type="module"[^>]+src="\/assets\/[^"]+\.js"/);
+  assert.match(html, /<link[^>]+rel="stylesheet"[^>]+href="\/assets\/[^"]+\.css"/);
+  assert.doesNotMatch(html, /vercel|cloudflare|vinext|codex-preview/i);
 });
 
-test("sets defense-in-depth document headers", async () => {
-  const response = await render();
+test("sets defense-in-depth headers on the built-in local server", async () => {
+  const response = await fetch(origin);
   const policy = response.headers.get("content-security-policy") ?? "";
 
   assert.match(policy, /default-src 'self'/);
@@ -68,35 +65,86 @@ test("sets defense-in-depth document headers", async () => {
   assert.equal(response.headers.get("x-frame-options"), "DENY");
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
   assert.equal(response.headers.get("cross-origin-opener-policy"), "same-origin");
+  assert.equal(response.headers.get("cross-origin-resource-policy"), "same-origin");
   assert.equal(response.headers.get("referrer-policy"), "no-referrer");
   assert.equal(response.headers.get("cache-control"), "no-store");
 });
 
-test("keeps hosted Live Mac disabled until a local companion pairing is present", async () => {
-  const response = await renderHosted();
-  const html = await response.text();
+test("serves only built files over GET or HEAD", async () => {
+  const head = await fetch(origin, { method: "HEAD" });
+  assert.equal(head.status, 200);
+  assert.equal(await head.text(), "");
 
-  assert.match(html, /Live Mac \(unavailable\)/);
-  assert.doesNotMatch(html, /Open Live Mac/);
+  const missing = await fetch(`${origin}/package.json`);
+  assert.equal(missing.status, 404);
+
+  const post = await fetch(origin, { method: "POST" });
+  assert.equal(post.status, 405);
+  assert.equal(post.headers.get("allow"), "GET, HEAD");
 });
 
-test("allows only the fixed loopback companion through hosted headers", async () => {
-  const configuration = JSON.parse(
-    await readFile(new URL("../vercel.json", import.meta.url), "utf8"),
-  );
-  const headers = Object.fromEntries(
-    configuration.headers[0].headers.map(({ key, value }) => [key.toLowerCase(), value]),
-  );
+test("rejects forged hosts, traversal, and non-loopback addresses", async () => {
+  const activePort = new URL(origin).port;
+  assert.equal(await requestStatus({ host: `localhost:${activePort}` }), 403);
 
-  assert.equal(configuration.outputDirectory, undefined);
-  assert.match(
-    headers["content-security-policy"],
-    /connect-src 'self' http:\/\/127\.0\.0\.1:4318 ws:\/\/127\.0\.0\.1:4318/,
-  );
-  assert.doesNotMatch(headers["content-security-policy"], /localhost|192\.168\.|127\.0\.0\.1:\*/);
-  assert.match(headers["permissions-policy"], /local-network=\(\)/);
-  assert.match(headers["permissions-policy"], /loopback-network=\(self\)/);
-  assert.doesNotMatch(headers["permissions-policy"], /local-network-access/);
+  const traversal = await fetch(`${origin}/..%2Fpackage.json`);
+  assert.equal(traversal.status, 404);
+  assert.equal(isLoopbackAddress("127.0.0.1"), true);
+  assert.equal(isLoopbackAddress("::ffff:127.0.0.1"), true);
+  assert.equal(isLoopbackAddress("192.168.1.20"), false);
+  assert.equal(isLoopbackAddress(undefined), false);
+});
+
+test("does not follow static symlinks outside the build root", async () => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "terminal-tutor-static-"));
+  const publicRoot = join(temporaryRoot, "public");
+  const secret = join(temporaryRoot, "secret.txt");
+  let isolatedServer;
+  try {
+    await mkdir(publicRoot);
+    await writeFile(join(publicRoot, "index.html"), "<!doctype html><title>safe</title>");
+    await writeFile(secret, "must not be served");
+    await symlink(secret, join(publicRoot, "leak.txt"));
+    isolatedServer = await startStaticServer({ root: publicRoot, port: 0 });
+    const address = isolatedServer.address();
+    assert.ok(address && typeof address === "object");
+    const response = await fetch(`http://127.0.0.1:${address.port}/leak.txt`);
+    assert.equal(response.status, 404);
+    assert.doesNotMatch(await response.text(), /must not be served/);
+  } finally {
+    if (isolatedServer) {
+      await new Promise((resolve, reject) => {
+        isolatedServer.close((error) => error ? reject(error) : resolve());
+      });
+    }
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("emits a self-contained browser bundle", async () => {
+  const html = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
+  const assetPaths = [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)]
+    .map((match) => match[1]);
+
+  assert.ok(assetPaths.some((path) => path.endsWith(".js")));
+  assert.ok(assetPaths.some((path) => path.endsWith(".css")));
+  for (const path of assetPaths) {
+    const asset = new URL(`../dist${path}`, import.meta.url);
+    await access(asset);
+    assert.ok((await stat(asset)).size > 0);
+  }
+});
+
+test("emits a Node-ready shell service without a TypeScript runtime", async () => {
+  const builtServer = new URL("../dist/server/pty-server.mjs", import.meta.url);
+  const serverArtifacts = await readdir(new URL("../dist/server/", import.meta.url));
+  const source = await readFile(builtServer, "utf8");
+
+  assert.deepEqual(serverArtifacts, ["pty-server.mjs"]);
+  assert.ok((await stat(builtServer)).size > 1_000);
+  assert.match(source, /from\s+["']node-pty["']/);
+  assert.match(source, /from\s+["']ws["']/);
+  assert.doesNotMatch(source, /interface\s+ClientMessage|:\s*IncomingMessage/);
 });
 
 test("ships terminal parsers locally", async () => {
