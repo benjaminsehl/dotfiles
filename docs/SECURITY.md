@@ -8,12 +8,16 @@ never adopts configuration recursively.
 - `.netrc`, `.npmrc`, `.env*`, private keys, tokens, or credential files
 - `~/.config/gh`, `~/.ssh`, `~/.aws`, `~/.docker`, or password-manager data
 - `~/.omp`, including its database, WAL, locks, provider credentials, and generated extension
+- `~/.config/mole` and `~/Library/Logs/mole`, including cleanup preferences and operation history
 - shell history, application history, backups, caches, or licensed font files
 - `.gitconfig.local` and `.zshrc.local`
 
-OMP's safe values are generated through its CLI during bootstrap instead of
-copying its configuration tree. Herdr's OMP extension is generated the same
-way. Git identity remains in a mode-600 local include.
+OMP's safe values and completion cache are generated through its CLI during
+bootstrap instead of copying its configuration tree. The trusted generated
+completion is shell code for OMP's command metadata; it contains no copied
+credentials, lives untracked under `~/.cache`, and is written atomically with
+mode 600. Herdr's OMP extension is generated the same way. Git identity remains
+in a mode-600 local include.
 
 Codex is managed with the same narrow approach. The repository never copies or
 tracks `~/.codex`; `configure-codex` owns only the top-level approval policy and
@@ -30,6 +34,19 @@ downloads a missing command on first use.
 Bootstrap enables `.githooks/pre-commit` only for this checkout. It does not set
 a global `core.hooksPath`, which would interfere with hooks owned by other
 repositories.
+
+Terminal Tutor is local-only. Its interface binds to `127.0.0.1:4317` and its
+PTY service to `127.0.0.1:4318`; the bridge rejects other Hosts, Origins,
+WebSocket paths, and non-loopback peers. Practice never starts a native process.
+Live Mac requires freshly typed consent and a single-use short-lived ticket,
+then runs with the same user permissions as Ghostty. There is no hosted Tutor,
+cloud relay, pairing URL, telemetry, or remote shell endpoint.
+
+Mole is managed by Homebrew, but its maintenance actions remain explicitly
+user-driven. `clean`, `uninstall`, `optimize`, `purge`, installer cleanup, and
+`remove` can delete local data or reset system state. Use a supported
+`--dry-run` first, review every confirmation, and inspect the local audit trail
+with `mo history`. The dotfiles never run Mole automatically.
 
 If a secret is ever committed, removing the line is not enough. Revoke or
 rotate the credential first, then remove it from Git history.

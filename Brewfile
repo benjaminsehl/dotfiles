@@ -1,5 +1,3 @@
-tap "can1357/tap"
-
 # Core workstation
 brew "git"
 brew "git-lfs"
@@ -27,6 +25,7 @@ brew "gitleaks"
 brew "shellcheck"
 brew "age"
 brew "btop"
+brew "mole"
 brew "dust"
 brew "procs"
 brew "trash"
@@ -45,7 +44,6 @@ brew "gum"
 
 # Agent workspace
 brew "herdr"
-brew "can1357/tap/omp"
 
 # Ghostty is already a signed direct install on the source Mac. Homebrew makes
 # fresh-machine installation reproducible; bootstrap skips this cask when the

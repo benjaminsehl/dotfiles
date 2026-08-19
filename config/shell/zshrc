@@ -1,10 +1,15 @@
 # Interactive Zsh configuration.
 [[ -o interactive ]] || return
 
-# Homebrew completions must be present before compinit.
+# Completion directories must be present before compinit. OMP's generated
+# completion is refreshed by apply/dev-update, never during shell startup.
 if [[ -n ${HOMEBREW_PREFIX:-} ]]; then
   fpath=("$HOMEBREW_PREFIX/share/zsh/site-functions" $fpath)
 fi
+omp_completion_dir="$HOME/.cache/zsh/site-functions"
+mkdir -p "$omp_completion_dir"
+fpath=("$omp_completion_dir" $fpath)
+unset omp_completion_dir
 mkdir -p "$HOME/.cache/zsh"
 autoload -Uz compinit
 compinit -d "$HOME/.cache/zsh/zcompdump"

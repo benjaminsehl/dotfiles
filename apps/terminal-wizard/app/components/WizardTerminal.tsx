@@ -9,10 +9,16 @@ import {
   useState,
 } from "react";
 import { GhosttyCore } from "@wterm/ghostty";
-import { BashShell } from "@wterm/just-bash";
 import { Terminal, type TerminalHandle } from "@wterm/react";
 import { sanitizeTerminalText } from "@/app/lib/file-system";
-import { basePracticeFiles, promptFor, registerPracticeCommands } from "@/app/lib/practice";
+import { basePracticeFiles, PRACTICE_ROOT, promptFor, registerPracticeCommands } from "@/app/lib/practice";
+import { PracticeShell } from "@/app/lib/practice-shell";
+import type { LessonCommandResult } from "@/app/lib/lesson-progress";
+import {
+  LIVE_SOCKET_URL,
+  parseLiveServerMessage,
+  requestLiveTicket,
+} from "@/app/lib/live-session";
 
 export type TerminalMode = "practice" | "live";
 
@@ -22,17 +28,11 @@ export type WizardTerminalHandle = {
 };
 
 type WizardTerminalProps = {
+  lessonId: string;
   mode: TerminalMode;
   files?: Record<string, string>;
-  onCommand(command: string): void;
+  onCommand(result: LessonCommandResult): void;
 };
-
-type LiveMessage =
-  | { type: "ready" }
-  | { type: "output"; data: string }
-  | { type: "exit"; code: number; signal?: number }
-  | { type: "error"; message: string }
-  | { type: "pong" };
 
 function safeWorkspaceFiles(files: Record<string, string>): Record<string, string> {
   const safe: Record<string, string> = {};
@@ -59,16 +59,28 @@ function dimensions(instance: TerminalHandle | null): { cols: number; rows: numb
 }
 
 export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalProps>(
-  function WizardTerminal({ mode, files = {}, onCommand }, forwardedRef) {
+  function WizardTerminal(
+    { lessonId, mode, files = {}, onCommand },
+    forwardedRef,
+  ) {
     const terminalRef = useRef<TerminalHandle>(null);
-    const shellRef = useRef<BashShell | null>(null);
+    const shellRef = useRef<PracticeShell | null>(null);
     const socketRef = useRef<WebSocket | null>(null);
     const liveAbortRef = useRef<AbortController | null>(null);
     const liveGenerationRef = useRef(0);
-    const commandBufferRef = useRef("");
+    const onCommandRef = useRef(onCommand);
+    const lessonIdRef = useRef(lessonId);
     const [core, setCore] = useState<GhosttyCore | null>(null);
     const [status, setStatus] = useState<"loading" | "connecting" | "ready" | "error">("loading");
     const [statusMessage, setStatusMessage] = useState("Loading libghostty…");
+
+    useEffect(() => {
+      onCommandRef.current = onCommand;
+    }, [onCommand]);
+
+    useEffect(() => {
+      lessonIdRef.current = lessonId;
+    }, [lessonId]);
 
     useEffect(() => {
       let active = true;
@@ -102,29 +114,8 @@ export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalPro
       [],
     );
 
-    const trackInput = useCallback(
-      (data: string) => {
-        if (data.startsWith("\u001b")) return;
-        for (const character of data) {
-          if (character === "\r" || character === "\n") {
-            const command = commandBufferRef.current.trim();
-            commandBufferRef.current = "";
-            if (command) onCommand(command);
-          } else if (character === "\u007f" || character === "\b") {
-            commandBufferRef.current = commandBufferRef.current.slice(0, -1);
-          } else if (character === "\u0015" || character === "\u0003") {
-            commandBufferRef.current = "";
-          } else if (character >= " ") {
-            commandBufferRef.current += character;
-          }
-        }
-      },
-      [onCommand],
-    );
-
     const sendInput = useCallback(
       (data: string) => {
-        trackInput(data);
         if (mode === "practice") {
           void shellRef.current?.handleInput(data);
           return;
@@ -134,7 +125,7 @@ export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalPro
           socket.send(JSON.stringify({ type: "input", data }));
         }
       },
-      [mode, trackInput],
+      [mode],
     );
 
     useImperativeHandle(
@@ -157,25 +148,17 @@ export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalPro
       liveAbortRef.current?.abort();
       const controller = new AbortController();
       liveAbortRef.current = controller;
+      let timedOut = false;
+      const timeout = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort("Live Mac session timed out");
+      }, 10_000);
       setStatus("connecting");
       setStatusMessage("Requesting a one-time Live Mac ticket…");
       try {
-        const response = await fetch("http://127.0.0.1:4318/session", {
-          method: "GET",
-          mode: "cors",
-          credentials: "omit",
-          cache: "no-store",
-          referrerPolicy: "no-referrer",
-          signal: controller.signal,
-        });
+        const protocol = await requestLiveTicket(controller.signal);
         if (controller.signal.aborted || liveGenerationRef.current !== generation) return;
-        if (!response.ok) throw new Error("The local Live Mac service is unavailable or already in use.");
-        const body = (await response.json()) as { protocol?: unknown };
-        if (typeof body.protocol !== "string" || !body.protocol.startsWith("terminal-wizard.")) {
-          throw new Error("The Live Mac service returned an invalid session ticket.");
-        }
-
-        const socket = new WebSocket("ws://127.0.0.1:4318/terminal", body.protocol);
+        const socket = new WebSocket(LIVE_SOCKET_URL, protocol);
         if (controller.signal.aborted || liveGenerationRef.current !== generation) {
           socket.close(1000, "terminal changed");
           return;
@@ -186,13 +169,19 @@ export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalPro
             socket.close(1000, "stale session");
             return;
           }
+          if (socket.protocol !== protocol) {
+            socket.close(1002, "session protocol mismatch");
+            setStatus("error");
+            setStatusMessage("The local companion returned an invalid connection protocol.");
+            return;
+          }
           const size = dimensions(terminalRef.current);
           socket.send(JSON.stringify({ type: "start", ...size }));
         });
         socket.addEventListener("message", (event) => {
           if (socketRef.current !== socket || liveGenerationRef.current !== generation) return;
-          try {
-            const message = JSON.parse(String(event.data)) as LiveMessage;
+          const message = parseLiveServerMessage(event.data);
+          if (message) {
             if (message.type === "output") terminalRef.current?.write(message.data);
             if (message.type === "ready") {
               setStatus("ready");
@@ -201,16 +190,16 @@ export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalPro
             }
             if (message.type === "error") {
               setStatus("error");
-              setStatusMessage(message.message);
-              terminalRef.current?.write(`\r\n\u001b[31m${message.message}\u001b[0m\r\n`);
+              setStatusMessage("The local companion closed Live Mac safely.");
             }
             if (message.type === "exit") {
               setStatus("error");
               setStatusMessage(`Shell exited with code ${message.code}`);
             }
-          } catch {
+          } else {
             setStatus("error");
             setStatusMessage("Live Mac sent an unreadable response.");
+            socket.close(1002, "invalid server message");
           }
         });
         socket.addEventListener("error", () => {
@@ -227,9 +216,17 @@ export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalPro
           }
         });
       } catch (error) {
-        if (controller.signal.aborted || liveGenerationRef.current !== generation) return;
+        if (liveGenerationRef.current !== generation || (controller.signal.aborted && !timedOut)) return;
         setStatus("error");
-        setStatusMessage(error instanceof Error ? error.message : "Could not start Live Mac");
+        setStatusMessage(
+          timedOut
+            ? "The local Live Mac service did not respond. Restart Terminal Tutor and try again."
+            : error instanceof Error
+              ? error.message
+              : "Could not start Live Mac",
+        );
+      } finally {
+        window.clearTimeout(timeout);
       }
     }, []);
 
@@ -241,9 +238,9 @@ export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalPro
       if (shellRef.current) return;
       const connectedFiles = safeWorkspaceFiles(files);
       const hasWorkspace = Object.keys(connectedFiles).some((path) => path.startsWith("/workspace/"));
-      const shell = new BashShell({
+      const shell = new PracticeShell({
         files: { ...basePracticeFiles, ...connectedFiles },
-        cwd: hasWorkspace ? "/workspace" : "/home/benjamin/Developer/terminal-wizard",
+        cwd: PRACTICE_ROOT,
         env: {
           HOME: "/home/benjamin",
           SHELL: "/bin/zsh",
@@ -252,18 +249,28 @@ export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalPro
           TERM_PROGRAM: "ghostty",
         },
         greeting: [
-          "\u001b[38;2;202;211;245mTerminal Wizard · safe practice\u001b[0m",
+          "\u001b[38;2;202;211;245mTerminal Tutor · safe practice\u001b[0m",
           "\u001b[38;2;166;173;200mIn-memory shell · network off · changes vanish on reload\u001b[0m",
           hasWorkspace ? "\u001b[38;2;166;227;161mRead-only folder snapshot mounted at /workspace\u001b[0m" : "Type help, or insert a command from the lesson below.",
         ],
         prompt: promptFor,
+        getLessonId: () => lessonIdRef.current,
+        onCommandResult(result) {
+          if (!result.lessonId) return;
+          onCommandRef.current({
+            lessonId: result.lessonId,
+            command: result.command,
+            mode: "practice",
+            status: result.exitCode === 0 ? "succeeded" : "failed",
+            exitCode: result.exitCode,
+          });
+        },
       });
       shellRef.current = shell;
       await shell.attach((data) => terminalRef.current?.write(data));
       registerPracticeCommands(shell);
       setStatus("ready");
       setStatusMessage("Safe practice ready");
-      terminalRef.current?.focus();
     }, [connectLive, files, mode]);
 
     const handleResize = useCallback((cols: number, rows: number) => {
@@ -286,7 +293,6 @@ export const WizardTerminal = forwardRef<WizardTerminalHandle, WizardTerminalPro
             core={core}
             className="wizard-wterm"
             autoResize
-            cursorBlink
             debug={false}
             onReady={() => void handleReady()}
             onData={sendInput}

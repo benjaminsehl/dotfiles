@@ -14,7 +14,7 @@ import {
   supportsFileSystemAccess,
 } from "../app/lib/file-system";
 
-type FakeEntry = FakeDirectory | FakeTextFile;
+type FakeEntry = FakeDirectory | FakeTextFile | FailingDirectory | FailingTextFile;
 
 class FakeTextFile {
   readonly kind = "file" as const;
@@ -31,6 +31,41 @@ class FakeTextFile {
         ? this.contents
         : (Uint8Array.from(this.contents).buffer as ArrayBuffer);
     return new File([contents], this.name, { type: this.type });
+  }
+
+  async isSameEntry(other: FileSystemHandle): Promise<boolean> {
+    return other === (this as unknown as FileSystemHandle);
+  }
+}
+
+class FailingTextFile {
+  readonly kind = "file" as const;
+
+  constructor(readonly name: string) {}
+
+  async getFile(): Promise<File> {
+    throw new DOMException("The file disappeared during the scan.", "NotFoundError");
+  }
+
+  async isSameEntry(other: FileSystemHandle): Promise<boolean> {
+    return other === (this as unknown as FileSystemHandle);
+  }
+}
+
+class FailingDirectory {
+  readonly kind = "directory" as const;
+
+  constructor(readonly name: string) {}
+
+  entries(): AsyncIterableIterator<[string, FileSystemHandle]> {
+    return {
+      async next() {
+        throw new DOMException("The directory became unreadable.", "NotReadableError");
+      },
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+    };
   }
 
   async isSameEntry(other: FileSystemHandle): Promise<boolean> {
@@ -93,6 +128,19 @@ class MemoryHandleStore {
   }
 }
 
+class FailingPutHandleStore extends MemoryHandleStore {
+  override async put(): Promise<void> {
+    throw new DOMException("IndexedDB rejected the handle.", "DataCloneError");
+  }
+}
+
+class FailingPutDeleteHandleStore extends FailingPutHandleStore {
+  override async delete(): Promise<void> {
+    this.deletes += 1;
+    throw new DOMException("IndexedDB could not clear the old handle.", "UnknownError");
+  }
+}
+
 afterEach(() => {
   __fileSystemTesting.reset();
   Reflect.deleteProperty(globalThis, "window");
@@ -150,6 +198,17 @@ test("applies conservative path and text-file policy", () => {
   assert.equal(isTextFileName("unknown.custom-binary"), false);
 });
 
+test("uses capability-neutral wording when folder access is unsupported", async () => {
+  assert.equal(supportsFileSystemAccess(), false);
+  await assert.rejects(connectFolder(), (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.equal((error as Error & { code?: string }).code, "UNSUPPORTED");
+    assert.match(error.message, /secure browser context with directory-picker support/i);
+    assert.doesNotMatch(error.message, /chrom(?:e|ium)/i);
+    return true;
+  });
+});
+
 test("connectFolder invokes a read-only picker immediately and returns DTOs", async () => {
   const store = new MemoryHandleStore();
   __fileSystemTesting.useHandleStore(store);
@@ -188,6 +247,8 @@ test("connectFolder invokes a read-only picker immediately and returns DTOs", as
   const snapshot = await pending;
   assert.equal(snapshot.label, "demo-project");
   assert.equal(snapshot.permission, "granted");
+  assert.equal(snapshot.remembered, true);
+  assert.equal(snapshot.staleSavedHandle, false);
   assert.equal(snapshot.fileCount, 1);
   assert.equal(snapshot.blockedCount, 2);
   assert.deepEqual(Object.keys(snapshot.files), ["/workspace/README.md"]);
@@ -213,6 +274,8 @@ test("restore queries permission and reconnect requests read permission directly
   const restored = await restoreFolder();
   assert.ok(restored);
   assert.equal(restored.permission, "prompt");
+  assert.equal(restored.remembered, true);
+  assert.equal(restored.staleSavedHandle, false);
   assert.deepEqual(restored.files, {});
   assert.deepEqual(folder.queryModes, ["read"]);
 
@@ -224,7 +287,93 @@ test("restore queries permission and reconnect requests read permission directly
   );
   const reconnected = await pending;
   assert.equal(reconnected.permission, "granted");
+  assert.equal(reconnected.remembered, true);
   assert.deepEqual(reconnected.files, { "/workspace/notes.md": "safe\n" });
+});
+
+test("keeps a usable session-only snapshot when handle persistence fails", async () => {
+  const store = new FailingPutHandleStore();
+  __fileSystemTesting.useHandleStore(store);
+  const folder = new FakeDirectory("session-project", [
+    new FakeTextFile("README.md", "available now\n"),
+  ]);
+
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      isSecureContext: true,
+      showDirectoryPicker() {
+        return Promise.resolve(folder as unknown as FileSystemDirectoryHandle);
+      },
+    },
+  });
+
+  const snapshot = await connectFolder();
+  assert.equal(snapshot.permission, "granted");
+  assert.equal(snapshot.remembered, false);
+  assert.equal(snapshot.staleSavedHandle, false);
+  assert.deepEqual(snapshot.files, {
+    "/workspace/README.md": "available now\n",
+  });
+
+  const refreshed = await reconnectFolder();
+  assert.equal(refreshed.remembered, false);
+  assert.deepEqual(refreshed.files, snapshot.files);
+
+  await forgetFolder();
+  assert.equal(store.deletes, 2);
+});
+
+test("warns when failed persistence cannot clear an older saved handle", async () => {
+  const oldFolder = new FakeDirectory("old-project");
+  const newFolder = new FakeDirectory("new-project", [
+    new FakeTextFile("README.md", "current session\n"),
+  ]);
+  const store = new FailingPutDeleteHandleStore();
+  store.value = oldFolder as unknown as FileSystemDirectoryHandle;
+  __fileSystemTesting.useHandleStore(store);
+
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      isSecureContext: true,
+      showDirectoryPicker() {
+        return Promise.resolve(newFolder as unknown as FileSystemDirectoryHandle);
+      },
+    },
+  });
+
+  const snapshot = await connectFolder();
+  assert.equal(snapshot.remembered, false);
+  assert.equal(snapshot.staleSavedHandle, true);
+  assert.deepEqual(snapshot.files, { "/workspace/README.md": "current session\n" });
+  assert.equal(store.value, oldFolder);
+  await assert.rejects(forgetFolder(), /could not clear the old handle/i);
+  assert.equal(store.value, oldFolder);
+});
+
+test("rejects control characters in names and contains isolated scan failures", async () => {
+  const folder = new FakeDirectory("resilient-project", [
+    new FakeTextFile("line\nbreak.md", "must not mount\n"),
+    new FakeTextFile("tab\tbreak.md", "must not mount\n"),
+    new FakeTextFile("unicode\u2028break.md", "must not mount\n"),
+    new FailingTextFile("disappeared.md"),
+    new FailingDirectory("unreadable"),
+    new FakeTextFile("safe.md", "safe\n"),
+    new FakeTextFile("after.md", "still scanned\n"),
+  ]);
+  const store = new MemoryHandleStore();
+  store.value = folder as unknown as FileSystemDirectoryHandle;
+  __fileSystemTesting.useHandleStore(store);
+
+  const snapshot = await restoreFolder();
+  assert.ok(snapshot);
+  assert.deepEqual(snapshot.files, {
+    "/workspace/safe.md": "safe\n",
+    "/workspace/after.md": "still scanned\n",
+  });
+  assert.equal(snapshot.blockedCount, 5);
+  assert.equal(snapshot.truncated, false);
 });
 
 test("enforces depth, entry, binary, and file-size limits", async () => {

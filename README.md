@@ -4,11 +4,11 @@ A small, deliberate macOS development environment:
 
 ```text
 Ghostty → zsh + Starship → Herdr → OMP / Codex
-                    └── mise → Node, pnpm, Bun, Go, Python
+                    └── mise → OMP, Codex, Node, pnpm, Bun, Go, Python
 ```
 
 The repository is the source of truth for shell behavior, applications,
-runtimes, safety defaults, and the tool manifest consumed by Terminal Wizard.
+runtimes, safety defaults, and the tool manifest consumed by Terminal Tutor.
 Network work never happens during shell startup.
 
 ## Install on a Mac
@@ -43,7 +43,9 @@ choose **Set Ghostty as Default Terminal App**.
 - `apply --dry-run` previews changes, `apply --check` verifies the setup, and `apply --update` intentionally advances declared tools.
 - `dev-doctor` checks Brewfile drift, symlinks, runtimes, Ghostty, Herdr, OMP/Codex safety and integrations, authentication, and sensitive file modes.
 - `configure-codex` safely applies Codex's on-request, auto-reviewed approval defaults without replacing the rest of its machine-local configuration.
-- `dev-update` updates the declared Homebrew set and refreshes exact mise pins. Pin changes make the repository dirty on purpose so they can be reviewed and committed.
+- `terminal-tutor` opens the local course in Chrome with its loopback-only shell service; `--dev` enables hot reload, `--production` forces a rebuild, and `--check` runs the complete release gate.
+- `mo status` and `mo analyze` inspect Mac health and disk use; preview supported cleanup operations with `--dry-run` before confirming them.
+- `dev-update` updates the declared Homebrew set, refreshes exact mise pins and the full mise lock plus OMP's completion cache, and synchronizes the teaching manifest from live command versions. Declaration changes make the repository dirty on purpose so they can be reviewed and committed.
 - `scripts/test` runs static checks, a secret scan, and a two-pass bootstrap test in an isolated temporary home.
 
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the fast shell vocabulary and the
@@ -52,9 +54,7 @@ manifest-backed learning path.
 Codex and OMP have intentionally separate safety defaults. See
 [docs/CODEX.md](docs/CODEX.md) for the exact behavior.
 
-## Terminal Wizard
-
-![Terminal Wizard social card](apps/terminal-wizard/public/og.png)
+## Terminal Tutor
 
 The repository includes a local, interactive course backed by wterm and the
 same `manifest/setup.json` that declares the workstation. Practice runs in an
@@ -63,12 +63,13 @@ text below `/workspace`; Live Mac requires typed consent before opening a real
 loopback-only zsh PTY.
 
 ```bash
-cd ~/Sites/dotfiles/apps/terminal-wizard
-npm ci
-npm run dev
+terminal-tutor
 ```
 
-Then open <http://127.0.0.1:4317>. See
+The dotfiles install the launcher. On first use it installs the exact locked
+JavaScript dependencies and builds the app; later launches reuse that build
+until the checkout changes. It waits for both local services, opens Chrome, and
+never publishes the interface or terminal traffic to a cloud host. See
 [apps/terminal-wizard/README.md](apps/terminal-wizard/README.md) for the trust
 boundaries and full verification command.
 
@@ -84,8 +85,8 @@ file.
 ## Provenance
 
 The explicit PATH, `apply` reconciliation model, pinned mise workflow,
-seven-day release gate, conditional tool ergonomics, fzf previews, and local
-override approach are adapted from
+seven-day release gate (with an explicit zero-day OMP exception), conditional
+tool ergonomics, fzf previews, and local override approach are adapted from
 [Tobi Lütke's dotfiles at the audited revision](https://github.com/tobi/dotfiles/tree/c1a2d9fc0d6248bd6549c99c387b8c6dcc984c3a). The implementation is
 Mac-specific, secret-safe, does not pull automatically, and avoids first-run
 network surprises in zsh.

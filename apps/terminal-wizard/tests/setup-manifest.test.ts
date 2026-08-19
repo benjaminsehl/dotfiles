@@ -12,6 +12,7 @@ import {
 import { lessons } from "../app/data/lessons";
 import {
   basePracticeFiles,
+  PRACTICE_ROOT,
   practiceDoctorOutput,
   practiceVersionLines,
 } from "../app/lib/practice";
@@ -33,15 +34,15 @@ test("loads the checked-in workstation manifest as the app source of truth", () 
 
 test("mounts the complete current manifest in the practice filesystem", () => {
   const practiceManifest = JSON.parse(
-    basePracticeFiles["/home/benjamin/Developer/terminal-wizard/setup.json"],
+    basePracticeFiles[`${PRACTICE_ROOT}/manifest/setup.json`],
   );
   assert.deepEqual(practiceManifest, manifestOnDisk);
   assert.match(
-    basePracticeFiles["/home/benjamin/Developer/terminal-wizard/config/omp.yml"],
+    basePracticeFiles[`${PRACTICE_ROOT}/practice/omp.yml`],
     new RegExp(`approvalMode: ${manifestOnDisk.safety.ompApprovalMode}`),
   );
   assert.match(
-    basePracticeFiles["/home/benjamin/Developer/terminal-wizard/config/omp.yml"],
+    basePracticeFiles[`${PRACTICE_ROOT}/practice/omp.yml`],
     new RegExp(`enabled: ${manifestOnDisk.safety.ompSecretsEnabled}`),
   );
 });
@@ -63,6 +64,7 @@ test("derives every simulated version and safety status from the manifest", () =
     uv: "uv",
     nvim: "nvim",
     mise: "mise",
+    mo: "mole",
   };
 
   for (const [command, id] of Object.entries(commandToId)) {
@@ -75,12 +77,12 @@ test("derives every simulated version and safety status from the manifest", () =
 
   assert.match(
     practiceDoctorOutput,
-    new RegExp(`OMP approval mode: ${manifestOnDisk.safety.ompApprovalMode}`),
+    new RegExp(`OMP approval mode target: ${manifestOnDisk.safety.ompApprovalMode}`),
   );
   assert.match(
     practiceDoctorOutput,
     new RegExp(
-      `OMP secret masking: ${manifestOnDisk.safety.ompSecretsEnabled ? "enabled" : "disabled"}`,
+      `OMP secret masking target: ${manifestOnDisk.safety.ompSecretsEnabled ? "enabled" : "disabled"}`,
     ),
   );
 });
@@ -109,6 +111,49 @@ test("keeps lesson version and approval copy aligned with the manifest", () => {
   );
 });
 
+test("turns every declared learning path, shortcut, alias, and workflow into curriculum", () => {
+  assert.deepEqual(
+    [...new Set(lessons.flatMap((lesson) => lesson.manifestPathId ? [lesson.manifestPathId] : []))].sort(),
+    manifestOnDisk.learningPaths.map((path) => path.id).sort(),
+  );
+
+  const curriculum = JSON.stringify(lessons);
+  for (const shortcut of manifestOnDisk.shortcuts) assert.match(curriculum, new RegExp(shortcut.keys.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  for (const alias of manifestOnDisk.aliases) {
+    assert.match(curriculum, new RegExp(`\\b${alias.name}\\b`));
+    assert.match(curriculum, new RegExp(alias.expandsTo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  for (const workflow of manifestOnDisk.workflows) {
+    assert.match(curriculum, new RegExp(workflow.command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+});
+
+test("keeps the Mole maintenance exercise aligned with the manifest", () => {
+  const mole = manifestOnDisk.tools.find((tool) => tool.id === "mole");
+  const maintenancePath = manifestOnDisk.learningPaths.find(
+    (path) => path.id === "maintain-the-machine",
+  );
+  const maintenanceLesson = lessons.find(
+    (lesson) => lesson.manifestPathId === maintenancePath?.id,
+  );
+  assert.ok(mole);
+  assert.equal(mole.command, "mo");
+  assert.ok(maintenancePath);
+  assert.ok(maintenancePath.tools.includes(mole.id));
+  assert.ok(maintenanceLesson);
+
+  const molePractice = maintenancePath.practice.find((entry) =>
+    entry.command.startsWith(`${mole.command} `),
+  );
+  assert.ok(molePractice);
+  assert.ok(
+    maintenanceLesson.commands.some(
+      (entry) => entry.command === molePractice.command,
+    ),
+    `lesson ${maintenanceLesson.id} must teach the manifest command: ${molePractice.command}`,
+  );
+});
+
 test("does not reintroduce version literals beside the manifest adapter", () => {
   const sourcePaths = [
     new URL("../app/data/lessons.ts", import.meta.url),
@@ -131,5 +176,4 @@ test("does not reintroduce version literals beside the manifest adapter", () => 
       `version ${version} must come from manifest/setup.json`,
     );
   }
-  assert.match(source, /\{declaredToolCount\}/);
 });

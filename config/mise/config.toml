@@ -1,6 +1,8 @@
 [settings]
 pin = true
 minimum_release_age = "7d"
+lockfile = true
+lockfile_platforms = ["macos-x64", "macos-arm64"]
 
 [settings.github]
 use_git_credentials = true
@@ -8,6 +10,7 @@ use_git_credentials = true
 [tools]
 bun = "1.3.14"
 go = "1.26.5"
+"github:can1357/oh-my-pi" = { version = "17.2.15", bin = "omp", minimum_release_age = "0s" }
 node = "24.19.0"
 python = "3.14.6"
 "npm:pnpm" = "11.20.0"

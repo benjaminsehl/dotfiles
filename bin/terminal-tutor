@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+resolve_source() {
+  local source_path=${BASH_SOURCE[0]}
+  while [[ -L $source_path ]]; do
+    local source_dir
+    source_dir=$(cd "$(dirname "$source_path")" && pwd)
+    source_path=$(readlink "$source_path")
+    [[ $source_path = /* ]] || source_path="$source_dir/$source_path"
+  done
+  cd "$(dirname "$source_path")/.." && pwd
+}
+
+usage() {
+  cat <<'USAGE'
+Usage: terminal-tutor [option]
+
+Open the local interactive course for this workstation.
+
+  --dev          Run the development server with hot reload
+  --production   Force a fresh production build, then run it locally
+  --check        Run the complete Terminal Tutor verification suite
+  --help         Show this help
+
+With no option, starts the current production build at http://127.0.0.1:4317,
+rebuilding only when the app source, lockfile, or dotfiles revision changes.
+The launcher keeps only the small production runtime after each build, waits
+for the local UI and shell service, then opens Chrome.
+USAGE
+}
+
+mode=production
+force_build=0
+case ${1:-} in
+  "") ;;
+  --dev) mode=development ;;
+  --production) mode=production; force_build=1 ;;
+  --check) mode=check ;;
+  --help) usage; exit 0 ;;
+  *) printf 'Unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+esac
+[[ $# -le 1 ]] || { printf 'Only one option is supported.\n' >&2; usage >&2; exit 2; }
+
+REPO_ROOT=$(resolve_source)
+APP_ROOT="$REPO_ROOT/apps/terminal-wizard"
+LOCKFILE="$APP_ROOT/package-lock.json"
+DEPENDENCY_STAMP="$APP_ROOT/node_modules/.terminal-tutor-lock-sha256"
+INSTALL_MODE_STAMP="$APP_ROOT/node_modules/.terminal-tutor-install-mode"
+BUILD_STAMP="$APP_ROOT/dist/.terminal-tutor-build-revision"
+
+command -v npm >/dev/null 2>&1 || {
+  printf 'npm is unavailable. Open a fresh shell after applying the dotfiles.\n' >&2
+  exit 1
+}
+
+expected_lock=$(shasum -a 256 "$LOCKFILE" | awk '{print $1}')
+read_install_state() {
+  installed_lock=
+  install_mode=
+  [[ ! -r $DEPENDENCY_STAMP ]] || IFS= read -r installed_lock < "$DEPENDENCY_STAMP"
+  [[ ! -r $INSTALL_MODE_STAMP ]] || IFS= read -r install_mode < "$INSTALL_MODE_STAMP"
+}
+
+write_install_state() {
+  mkdir -p "$APP_ROOT/node_modules"
+  printf '%s\n' "$expected_lock" > "$DEPENDENCY_STAMP"
+  printf '%s\n' "$1" > "$INSTALL_MODE_STAMP"
+  installed_lock=$expected_lock
+  install_mode=$1
+}
+
+ensure_full_dependencies() {
+  read_install_state
+  if [[ ! -x $APP_ROOT/node_modules/.bin/vite ||
+        $installed_lock != "$expected_lock" || $install_mode != full ]]; then
+    printf 'Installing the complete Terminal Tutor build toolchain…\n'
+    (cd "$APP_ROOT" && npm ci --include=dev)
+    write_install_state full
+  fi
+}
+
+ensure_runtime_dependencies() {
+  read_install_state
+  if [[ ! -d $APP_ROOT/node_modules/node-pty || ! -d $APP_ROOT/node_modules/ws ||
+        $installed_lock != "$expected_lock" ]]; then
+    printf 'Installing the lean Terminal Tutor runtime…\n'
+    (cd "$APP_ROOT" && npm ci --omit=dev)
+    write_install_state production
+  fi
+}
+
+prune_to_runtime_dependencies() {
+  read_install_state
+  if [[ $install_mode != production || -x $APP_ROOT/node_modules/.bin/vite ]]; then
+    printf 'Trimming Terminal Tutor to its local production runtime…\n'
+    (cd "$APP_ROOT" && npm prune --omit=dev && npm run prepare:pty)
+    write_install_state production
+  fi
+}
+
+cd "$APP_ROOT"
+case $mode in
+  development)
+    ensure_full_dependencies
+    exec npm run dev
+    ;;
+  production)
+    revision=$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || printf 'unversioned')
+    source_dirty=0
+    if ! git -C "$REPO_ROOT" diff --quiet -- apps/terminal-wizard manifest/setup.json 2>/dev/null ||
+       ! git -C "$REPO_ROOT" diff --cached --quiet -- apps/terminal-wizard manifest/setup.json 2>/dev/null ||
+       [[ -n $(git -C "$REPO_ROOT" ls-files --others --exclude-standard -- apps/terminal-wizard manifest/setup.json 2>/dev/null) ]]; then
+      source_dirty=1
+    fi
+    built_revision=
+    if [[ -r $BUILD_STAMP ]]; then
+      IFS= read -r built_revision < "$BUILD_STAMP"
+    fi
+    read_install_state
+    lock_changed=0
+    [[ $installed_lock == "$expected_lock" ]] || lock_changed=1
+    if ((force_build || lock_changed || source_dirty)) ||
+       [[ ! -r $APP_ROOT/dist/index.html ||
+          ! -r $APP_ROOT/dist/server/pty-server.mjs ||
+          $built_revision != "$revision" ]]; then
+      ensure_full_dependencies
+      npm run build
+      if ((source_dirty)); then
+        printf '%s:dirty\n' "$revision" > "$BUILD_STAMP"
+      else
+        printf '%s\n' "$revision" > "$BUILD_STAMP"
+      fi
+    else
+      ensure_runtime_dependencies
+    fi
+    prune_to_runtime_dependencies
+    exec npm start
+    ;;
+  check)
+    ensure_full_dependencies
+    exec npm run check
+    ;;
+esac

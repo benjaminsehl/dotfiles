@@ -8,8 +8,5 @@ description = "Generated and dependency directories are excluded from source sca
 paths = [
   '''(^|/)node_modules/''',
   '''(^|/)dist/''',
-  '''(^|/)\.next/''',
-  '''(^|/)\.vinext/''',
-  '''(^|/)\.wrangler/''',
   '''(^|/)tsconfig\.tsbuildinfo$''',
 ]

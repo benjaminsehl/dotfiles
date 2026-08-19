@@ -85,8 +85,44 @@ if ((SKIP_PACKAGES == 0)); then
 fi
 
 timestamp=$(date +%Y%m%d-%H%M%S)
-BACKUP_ROOT="$TARGET_HOME/.config/dotfiles-backups/$timestamp"
+BACKUP_PARENT="$TARGET_HOME/.config/dotfiles-backups"
+BACKUP_ROOT="$BACKUP_PARENT/$timestamp.XXXXXX"
 backup_used=0
+
+harden_backup_tree() {
+  [[ -d $BACKUP_PARENT ]] || return 0
+  if ((DRY_RUN)); then
+    say "would restrict existing backup permissions under $BACKUP_PARENT"
+    return
+  fi
+  find -P "$BACKUP_PARENT" -type d -exec chmod 700 {} +
+  find -P "$BACKUP_PARENT" -type f -exec chmod go-rwx {} +
+}
+
+prepare_backup_root() {
+  ((backup_used == 0)) || return 0
+  if ((DRY_RUN)); then
+    say "would create a unique private backup directory matching $BACKUP_ROOT"
+  else
+    install -d -m 700 "$BACKUP_PARENT"
+    BACKUP_ROOT=$(mktemp -d "$BACKUP_ROOT")
+    chmod 700 "$BACKUP_ROOT"
+  fi
+  backup_used=1
+}
+
+secure_backup_path() {
+  local path=$1
+  [[ -L $path ]] && return
+  if [[ -d $path ]]; then
+    find -P "$path" -type d -exec chmod 700 {} +
+    find -P "$path" -type f -exec chmod go-rwx {} +
+  elif [[ -f $path ]]; then
+    chmod go-rwx "$path"
+  fi
+}
+
+harden_backup_tree
 
 link_file() {
   source_path=$1
@@ -98,15 +134,17 @@ link_file() {
   fi
 
   if [[ -e $target_path || -L $target_path ]]; then
+    prepare_backup_root
     relative=${target_path#"$TARGET_HOME"/}
     backup_path="$BACKUP_ROOT/$relative"
     if ((DRY_RUN)); then
       say "would back up $target_path to $backup_path"
     else
       mkdir -p "$(dirname "$backup_path")"
+      find -P "$BACKUP_ROOT" -type d -exec chmod 700 {} +
       mv "$target_path" "$backup_path"
+      secure_backup_path "$backup_path"
     fi
-    backup_used=1
   fi
 
   if ((DRY_RUN)); then
@@ -128,12 +166,15 @@ sources=(
   "$REPO_ROOT/config/ghostty/config.ghostty"
   "$REPO_ROOT/config/herdr/config.toml"
   "$REPO_ROOT/config/mise/config.toml"
+  "$REPO_ROOT/config/mise/mise.lock"
   "$REPO_ROOT/config/starship/starship.toml"
   "$REPO_ROOT/config/git/gitconfig"
   "$REPO_ROOT/apply"
   "$REPO_ROOT/bin/dev-update"
   "$REPO_ROOT/bin/dev-doctor"
   "$REPO_ROOT/bin/configure-codex"
+  "$REPO_ROOT/bin/terminal-tutor"
+  "$REPO_ROOT/bin/terminal-tutor"
 )
 targets=(
   "$TARGET_HOME/.profile"
@@ -145,12 +186,15 @@ targets=(
   "$TARGET_HOME/.config/ghostty/config.ghostty"
   "$TARGET_HOME/.config/herdr/config.toml"
   "$TARGET_HOME/.config/mise/config.toml"
+  "$TARGET_HOME/.config/mise/mise.lock"
   "$TARGET_HOME/.config/starship.toml"
   "$TARGET_HOME/.gitconfig"
   "$TARGET_HOME/.local/bin/apply"
   "$TARGET_HOME/.local/bin/dev-update"
   "$TARGET_HOME/.local/bin/dev-doctor"
   "$TARGET_HOME/.local/bin/configure-codex"
+  "$TARGET_HOME/.local/bin/terminal-tutor"
+  "$TARGET_HOME/.local/bin/terminal-wizard"
 )
 
 for index in "${!sources[@]}"; do
@@ -199,6 +243,12 @@ if ((SKIP_POSTINSTALL == 0)) && [[ $TARGET_HOME == "$HOME" ]] && ((DRY_RUN == 0)
   source "$TARGET_HOME/.profile"
   mise install
   mise reshim
+  # A blank home has no mise shim directory when the profile is first sourced.
+  # Source it again after reshim so this process immediately uses the installs
+  # it just created rather than falling through to another package manager.
+  # shellcheck disable=SC1091
+  source "$TARGET_HOME/.profile"
+  "$REPO_ROOT/scripts/sync-omp-completion" --write
   git lfs install --skip-repo
   omp config set tools.approvalMode write
   omp config set secrets.enabled true

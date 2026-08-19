@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { access, lstat } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test, { after, before } from "node:test";
 import WebSocket from "ws";
@@ -15,7 +16,6 @@ const tsxCli = fileURLToPath(
 const ptyServer = fileURLToPath(
   new URL("../server/pty-server.ts", import.meta.url),
 );
-
 let child: ChildProcess;
 let bridgePort = 0;
 let browserOrigin = "";
@@ -103,6 +103,7 @@ async function startIsolatedBridge(
       WIZARD_ALLOWED_ORIGIN: origin,
       WIZARD_PTY_PORT: String(isolatedPort),
       WIZARD_TEST_IDLE_TIMEOUT_MS: String(idleTimeoutMs),
+      WIZARD_WORKSPACE_ROOT: projectRoot,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -135,7 +136,7 @@ async function mintTicket(): Promise<string> {
   assert.equal(typeof body.protocol, "string");
   assert.match(
     body.protocol as string,
-    /^terminal-wizard\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/,
+    /^terminal-tutor\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/,
   );
   return body.protocol as string;
 }
@@ -148,9 +149,10 @@ async function attemptSocket(
   protocols: string | string[],
   origin = browserOrigin,
   headers?: Record<string, string>,
+  webSocketUrl = bridgeWebSocket,
 ): Promise<SocketAttempt> {
   return new Promise<SocketAttempt>((resolve, reject) => {
-    const socket = new WebSocket(bridgeWebSocket, protocols, {
+    const socket = new WebSocket(webSocketUrl, protocols, {
       origin,
       headers,
       handshakeTimeout: 2_000,
@@ -229,6 +231,7 @@ before(async () => {
       WIZARD_SESSION_TOKEN: randomBytes(32).toString("hex"),
       WIZARD_ALLOWED_ORIGIN: browserOrigin,
       WIZARD_PTY_PORT: String(bridgePort),
+      WIZARD_WORKSPACE_ROOT: projectRoot,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -256,6 +259,22 @@ test("prepares node-pty's macOS helper as a regular executable", async (context)
   await access(helper, fsConstants.X_OK);
 });
 
+test("reports local readiness without exposing a remote session POST", async () => {
+  const health = await fetch(`${bridgeHttp}/health`, { cache: "no-store" });
+  assert.equal(health.status, 200);
+  assert.deepEqual(await health.json(), { ready: true, mode: "local" });
+  assert.equal(health.headers.get("access-control-allow-origin"), null);
+  assert.equal((await fetch(`${bridgeHttp}/health`, {
+    headers: { Origin: "https://remote.example" },
+  })).status, 404);
+  assert.equal((await fetch(`${bridgeHttp}/health?unexpected=1`)).status, 404);
+  assert.equal((await fetch(`${bridgeHttp}/session`, {
+    method: "POST",
+    headers: { Origin: browserOrigin, "Content-Type": "application/json" },
+    body: "{}",
+  })).status, 404);
+});
+
 test("enforces the loopback Origin, Host, ticket, and session boundary", async () => {
   assert.equal((await session("https://evil.example")).status, 404);
   assert.equal((await fetch(`${bridgeHttp}/session`)).status, 404);
@@ -273,7 +292,7 @@ test("enforces the loopback Origin, Host, ticket, and session boundary", async (
 
   const tooManyProtocols = await attemptSocket([
     ticket,
-    "terminal-wizard.unexpected",
+    "terminal-tutor.unexpected",
   ]);
   assert.deepEqual(tooManyProtocols, { kind: "http", status: 403 });
 
@@ -436,12 +455,12 @@ test("sanitizes the shell environment and survives a rapid reconnect", async () 
   await new Promise<void>((resolve) => setTimeout(resolve, 150));
   assert.equal(secondAttempt.socket.readyState, WebSocket.OPEN);
 
-  const marker = "__TW_ENV__unset:live";
+  const marker = `__TW_ENV__unset:live::__TW_CWD__${resolve(projectRoot)}`;
   const output = waitForOutput(secondAttempt.socket, marker);
   secondAttempt.socket.send(
     JSON.stringify({
       type: "input",
-      data: 'printf \'__TW_ENV__%s:%s\\n\' "${TW_TEST_PARENT_SECRET-unset}" "$TERMINAL_WIZARD"\r',
+      data: 'printf \'__TW_ENV__%s:%s::__TW_CWD__%s\\n\' "${TW_TEST_PARENT_SECRET-unset}" "$TERMINAL_TUTOR" "$PWD"\r',
     }),
   );
   await output;

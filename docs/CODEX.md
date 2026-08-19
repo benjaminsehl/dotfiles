@@ -25,9 +25,11 @@ machine-local marketplace, plugin, and integration settings there.
 keys and tables, tightens the directory and file modes, and backs up a changed
 file before replacing it.
 
-The CLI itself is pinned through mise as `npm:@openai/codex`, and bootstrap
-installs Herdr's Codex integration alongside its OMP integration. Credentials,
-sessions, plugins, and marketplace state remain machine-local.
+The Codex CLI is pinned through mise as `npm:@openai/codex`. OMP is separately
+pinned through mise's official GitHub backend with reviewable release checksums;
+neither agent is owned by Homebrew. Bootstrap installs Herdr's Codex integration
+alongside its OMP integration. Credentials, sessions, plugins, and marketplace
+state remain machine-local.
 
 Verify or reapply the policy with:
 

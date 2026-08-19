@@ -1,5 +1,5 @@
 import { defineCommand, type CommandContext, type ExecResult } from "just-bash";
-import type { BashShell } from "@wterm/just-bash";
+import type { PracticeShell } from "./practice-shell";
 import {
   getSetupToolVersion,
   setupManifest,
@@ -25,33 +25,34 @@ export const practiceVersionLines: Record<string, string> = {
   uv: `uv ${getSetupToolVersion("uv")}\n`,
   nvim: `NVIM v${getSetupToolVersion("nvim")}\n`,
   mise: `${getSetupToolVersion("mise")} macos-x64 (practice snapshot)\n`,
+  mo: `Mole version ${getSetupToolVersion("mole")}\n`,
 };
 
 const practiceRuntimeIds = ["node", "pnpm", "bun", "go", "python"] as const;
+export const PRACTICE_ROOT = "/home/benjamin/Sites/dotfiles";
 
-export const practiceDoctorOutput = `Developer workstation doctor (practice snapshot)
-✓ clean zsh login; no Fig hooks
-✓ Homebrew declaration satisfied
-✓ Ghostty config valid
-✓ mise runtimes pinned
-✓ OMP approval mode: ${setupSafety.approvalMode}
-✓ OMP secret masking: ${setupSafety.secretsEnabled ? "enabled" : "disabled"}
-✓ Herdr ↔ OMP integration current
-✓ Herdr ↔ Codex integration current
-✓ sensitive file modes private
+export const practiceDoctorOutput = `Developer workstation declaration (practice model)
+✓ expected clean zsh login
+✓ declared Homebrew set represented
+✓ declared Ghostty and mise configuration represented
+✓ OMP approval mode target: ${setupSafety.approvalMode}
+✓ OMP secret masking target: ${setupSafety.secretsEnabled ? "enabled" : "disabled"}
+✓ Herdr integration targets represented
+✓ private-mode policy represented
 
-All promised checks pass in the recorded setup. Run this in Live Mac for current state.
+The teaching model is internally consistent; this is not a live health result.
+Switch to Live Mac and run dev-doctor to observe the current workstation.
 `;
 
 export const basePracticeFiles: Record<string, string> = {
-  "/home/benjamin/Developer/terminal-wizard/README.md": `# Terminal Wizard
+  [`${PRACTICE_ROOT}/README.md`]: `# Benjamin's dotfiles
 
-Practice is an in-memory shell. Try pwd, tree, rg, jq, and git status.
+Practice is an in-memory model of ~/Sites/dotfiles. Try pwd, tree, rg, jq, and git status.
 Nothing here can alter the Mac.
 `,
-  "/home/benjamin/Developer/terminal-wizard/package.json": `${JSON.stringify(
+  [`${PRACTICE_ROOT}/apps/terminal-wizard/package.json`]: `${JSON.stringify(
     {
-      name: "terminal-wizard",
+      name: "terminal-tutor",
       private: true,
       scripts: {
         dev: "npm run dev:web",
@@ -61,7 +62,7 @@ Nothing here can alter the Mac.
     null,
     2,
   )}\n`,
-  "/home/benjamin/Developer/terminal-wizard/docs/shortcuts.md": `# Shortcuts
+  [`${PRACTICE_ROOT}/docs/shortcuts.md`]: `# Shortcuts
 
 - Control-R: fuzzy history
 - Control-T: fuzzy file finder
@@ -69,18 +70,30 @@ Nothing here can alter the Mac.
 - Control-B then ?: Herdr help
 - Control-B then Q: detach Herdr
 `,
-  "/home/benjamin/Developer/terminal-wizard/docs/TODO.md": `# Practice ideas
+  [`${PRACTICE_ROOT}/docs/TODO.md`]: `# Practice ideas
+
+TODO: rehearse one safe search before switching to Live Mac.
 
 - [ ] Search this project with rg
-- [ ] Inspect setup.json with jq
+- [ ] Inspect manifest/setup.json with jq
 - [ ] Run dev-doctor
 `,
-  "/home/benjamin/Developer/terminal-wizard/config/omp.yml": `tools:
+  [`${PRACTICE_ROOT}/notes/terminal-tricks.md`]: `# Terminal trick
+
+Inspect first, mutate second.
+`,
+  [`${PRACTICE_ROOT}/scripts/check-links`]: `#!/usr/bin/env bash
+set -euo pipefail
+printf 'practice links are healthy\\n'
+`,
+  [`${PRACTICE_ROOT}/apps/terminal-wizard/app/example.ts`]: `export const ready = true;
+`,
+  [`${PRACTICE_ROOT}/practice/omp.yml`]: `tools:
   approvalMode: ${setupSafety.approvalMode}
 secrets:
   enabled: ${setupSafety.secretsEnabled}
 `,
-  "/home/benjamin/Developer/terminal-wizard/setup.json": JSON.stringify(setupManifest, null, 2),
+  [`${PRACTICE_ROOT}/manifest/setup.json`]: JSON.stringify(setupManifest, null, 2),
 };
 
 function versionCommand(name: string) {
@@ -154,7 +167,7 @@ async function practiceTree(args: string[], ctx: CommandContext): Promise<ExecRe
   const root = ctx.fs.resolvePath(ctx.cwd, target);
   if (!(await ctx.fs.exists(root))) {
     if (root === "/workspace") {
-      return ok(
+      return fail(
         "/workspace\n└── No read-only folder is connected. Use “Connect a folder” above, then run this again.\n",
       );
     }
@@ -186,7 +199,7 @@ async function practiceRipgrep(args: string[], ctx: CommandContext): Promise<Exe
   for (const [index, root] of roots.entries()) {
     if (await ctx.fs.exists(root)) continue;
     if (root === "/workspace") {
-      return ok(
+      return fail(
         "No read-only folder is connected at /workspace. Use “Connect a folder” above, then run this search again.\n",
       );
     }
@@ -245,31 +258,67 @@ async function readPretty(args: string[], ctx: CommandContext): Promise<ExecResu
   }
 }
 
-function gitResult(args: string[]): ExecResult {
+type PracticeGitState = {
+  branch: string;
+  staged: boolean;
+  committed: boolean;
+};
+
+function gitResult(args: string[], state: PracticeGitState): ExecResult {
   const subcommand = args[0] ?? "status";
   if (subcommand === "--version") return ok(`git version ${getSetupToolVersion("git")}\n`);
   if (subcommand === "status") {
+    if (state.committed) return ok(`On branch ${state.branch}\nnothing to commit, working tree clean\n`);
+    if (state.staged) {
+      return ok(
+        args.includes("--short")
+          ? "A  notes/terminal-tricks.md\n"
+          : `On branch ${state.branch}\nChanges to be committed:\n  new file: notes/terminal-tricks.md\n`,
+      );
+    }
     return ok(
       args.includes("--short")
         ? " M app/components/WizardTerminal.tsx\n?? notes/terminal-tricks.md\n"
-        : "On branch main\nChanges not staged for commit:\n  modified: app/components/WizardTerminal.tsx\n\nUntracked files:\n  notes/terminal-tricks.md\n",
+        : `On branch ${state.branch}\nChanges not staged for commit:\n  modified: app/components/WizardTerminal.tsx\n\nUntracked files:\n  notes/terminal-tricks.md\n`,
     );
   }
   if (subcommand === "diff") {
     return ok(args.includes("--stat") ? " app/components/WizardTerminal.tsx | 12 +++++++++---\n 1 file changed, 9 insertions(+), 3 deletions(-)\n" : "diff --git a/app/components/WizardTerminal.tsx b/app/components/WizardTerminal.tsx\n+// simulated practice change\n");
   }
   if (subcommand === "log") {
-    return ok("a8e1c42 (HEAD -> main) Teach live-shell boundaries\n54fc901 Add read-only project practice\n08ab133 Build terminal foundations\n");
+    const newest = state.committed
+      ? `d0c0fed (HEAD -> ${state.branch}) Document terminal trick\n`
+      : `a8e1c42 (HEAD -> ${state.branch}) Teach live-shell boundaries\n`;
+    return ok(`${newest}54fc901 Add read-only project practice\n08ab133 Build terminal foundations\n`);
   }
-  if (subcommand === "branch") return ok("* main\n  lesson/search\n");
+  if (subcommand === "branch") return ok(`* ${state.branch}\n  main\n`);
+  if (subcommand === "switch" && args[1] === "-c" && args[2]) {
+    state.branch = args[2];
+    return ok(`Switched to a new branch '${state.branch}'\n`);
+  }
+  if (subcommand === "add" && args.includes("notes/terminal-tricks.md")) {
+    state.staged = true;
+    return ok("Staged notes/terminal-tricks.md in the practice repository.\n");
+  }
+  if (subcommand === "commit") {
+    if (state.committed) return ok("Practice checkpoint already committed.\n");
+    if (!state.staged) return fail("nothing staged; run git add first\n");
+    state.committed = true;
+    state.staged = false;
+    return ok(`[${state.branch} d0c0fed] Document terminal trick\n 1 file changed, 3 insertions(+)\n`);
+  }
   return ok(`git ${args.join(" ")}\nPractice snapshot: command understood; no real repository was changed.\n`);
 }
 
-function ghResult(args: string[]): ExecResult {
+function ghResult(args: string[], state: PracticeGitState): ExecResult {
   if (args[0] === "auth" && args[1] === "status") {
     return ok("github.com\n  ✓ Practice identity ready (no real credentials are loaded)\n");
   }
   if (args.includes("--version") || args[0] === "version") return ok(practiceVersionLines.gh);
+  if (args[0] === "pr" && args[1] === "create") {
+    if (!state.committed) return fail("Practice: commit the staged checkpoint before preparing a pull request.\n");
+    return ok(`Practice draft ready for ${state.branch}; no network request was made.\n`);
+  }
   return ok(`gh ${args.join(" ")}\nPractice mode never contacts GitHub. Use Live Mac for an authenticated operation.\n`);
 }
 
@@ -282,7 +331,22 @@ function miseResult(args: string[]): ExecResult {
         .join("\n")}\n`,
     );
   }
+  if (args[0] === "doctor") {
+    return ok("mise doctor (practice snapshot)\n✓ config loaded\n✓ shims active\n✓ exact project runtimes resolved\n");
+  }
   return ok("mise: project runtimes are pinned by the dotfiles snapshot\n");
+}
+
+async function uvResult(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  if (args.includes("--version") || args[0] === "version") return ok(practiceVersionLines.uv);
+  if (args[0] !== "init") return ok("uv uses an isolated in-memory project in Practice.\n");
+  const name = args[1] || "scratch-python";
+  if (!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(name)) return fail("uv init: choose a simple project name\n");
+  const root = ctx.fs.resolvePath(ctx.cwd, name);
+  if (!(await ctx.fs.exists(root))) await ctx.fs.mkdir(root, { recursive: true });
+  await ctx.fs.writeFile(`${root}/pyproject.toml`, `[project]\nname = "${name}"\nversion = "0.1.0"\n`);
+  await ctx.fs.writeFile(`${root}/README.md`, `# ${name}\n`);
+  return ok(`Initialized project '${name}' in the in-memory practice filesystem.\n`);
 }
 
 function ompResult(args: string[]): ExecResult {
@@ -294,29 +358,90 @@ function ompResult(args: string[]): ExecResult {
   return ok(`OMP is not launched in Practice. Safety snapshot: approval mode ${setupSafety.approvalMode}; secret masking ${setupSafety.secretsEnabled ? "enabled" : "disabled"}.\n`);
 }
 
+function moleResult(args: string[]): ExecResult {
+  if (args[0] === "--version" || args[0] === "version") return ok(practiceVersionLines.mo);
+  if (args[0] === "status" && args.includes("--json")) {
+    return ok('{"health_score":92,"mode":"practice","mutated":false}\n');
+  }
+  if (args.includes("--dry-run")) {
+    return ok("Mole Practice preview: no files were changed. Review the real Mac output before confirming cleanup.\n");
+  }
+  return ok("Mole cleanup is simulated in Practice. Use `mo status` or a supported `--dry-run` before any real maintenance action.\n");
+}
+
 function doctorResult(): ExecResult {
   return ok(practiceDoctorOutput);
 }
 
-export function registerPracticeCommands(shell: BashShell): void {
+function astGrepResult(args: string[]): ExecResult {
+  const patternIndex = args.findIndex((argument) => argument === "-p" || argument === "--pattern");
+  if (args[0] !== "run" || patternIndex < 0 || !args[patternIndex + 1]) {
+    return fail("sg: use `sg run -p 'pattern' path` for a structural search\n");
+  }
+  if (args[patternIndex + 1] !== "export const $A = $B") {
+    return fail("sg: that pattern has no matches in the practice project\n");
+  }
+  return ok("apps/terminal-wizard/app/example.ts:1:export const ready = true;\n");
+}
+
+export function registerPracticeCommands(shell: PracticeShell): void {
   const bash = shell.bash;
   if (!bash) return;
 
-  for (const name of ["ghostty", "starship", "herdr", "codex", "node", "npm", "pnpm", "bun", "go", "python3", "uv", "nvim"]) {
+  const gitState: PracticeGitState = { branch: "main", staged: false, committed: false };
+
+  for (const name of ["ghostty", "starship", "herdr", "codex", "node", "npm", "pnpm", "bun", "go", "python3", "nvim"]) {
     bash.registerCommand(versionCommand(name));
   }
+  bash.registerCommand(defineCommand("uv", uvResult));
   bash.registerCommand(defineCommand("omp", async (args) => ompResult(args)));
+  bash.registerCommand(defineCommand("mo", async (args) => moleResult(args)));
   bash.registerCommand(defineCommand("mise", async (args) => miseResult(args)));
-  bash.registerCommand(defineCommand("git", async (args) => gitResult(args)));
-  bash.registerCommand(defineCommand("gh", async (args) => ghResult(args)));
+  bash.registerCommand(defineCommand("git", async (args) => gitResult(args, gitState)));
+  bash.registerCommand(defineCommand("gh", async (args) => ghResult(args, gitState)));
   bash.registerCommand(defineCommand("fd", findPaths));
   bash.registerCommand(defineCommand("eza", listPaths));
   bash.registerCommand(defineCommand("bat", readPretty));
-  bash.registerCommand(defineCommand("gs", async () => gitResult(["status", "--short"])));
-  bash.registerCommand(defineCommand("gd", async () => gitResult(["diff"])));
-  bash.registerCommand(defineCommand("gl", async () => gitResult(["log", "--oneline", "-5"])));
+  bash.registerCommand(defineCommand("gs", async () => gitResult(["status", "--short"], gitState)));
+  bash.registerCommand(defineCommand("gd", async () => gitResult(["diff"], gitState)));
+  bash.registerCommand(defineCommand("gl", async () => gitResult(["log", "--oneline", "-5"], gitState)));
   bash.registerCommand(defineCommand("ll", async (args, ctx) => listPaths(["-la", ...args], ctx)));
   bash.registerCommand(defineCommand("la", async (args, ctx) => listPaths(["-la", ...args], ctx)));
+  bash.registerCommand(
+    defineCommand("e", async (args, ctx) => {
+      const target = args[0] ?? "README.md";
+      const path = ctx.fs.resolvePath(ctx.cwd, target);
+      if (!(await ctx.fs.exists(path))) return fail(`nvim: ${target}: No such file\n`);
+      return ok(`Practice editor preview for ${target}; Live Mac opens Neovim.\n`);
+    }),
+  );
+  bash.registerCommand(
+    defineCommand("n", async (args, ctx) => {
+      const target = args[0] ?? "README.md";
+      const path = ctx.fs.resolvePath(ctx.cwd, target);
+      if (!(await ctx.fs.exists(path))) return fail(`nvim: ${target}: No such file\n`);
+      return ok(`Practice editor preview for ${target}; Live Mac opens Neovim.\n`);
+    }),
+  );
+  bash.registerCommand(defineCommand("sg", async (args) => astGrepResult(args)));
+  bash.registerCommand(
+    defineCommand("lazygit", async () => ok("Practice lazygit view: status, files, branches, commits. Live Mac opens the interactive UI.\n")),
+  );
+  bash.registerCommand(
+    defineCommand("lg", async () => ok("Practice lazygit view: status, files, branches, commits. Live Mac opens the interactive UI.\n")),
+  );
+  bash.registerCommand(
+    defineCommand("direnv", async (args) =>
+      args[0] === "status"
+        ? ok("direnv status (practice)\nNo .envrc is loaded; approval remains explicit.\n")
+        : ok("Practice mode does not load project environment files.\n"),
+    ),
+  );
+  bash.registerCommand(
+    defineCommand("shellcheck", async (args) =>
+      ok(`No ShellCheck findings in ${args[0] ?? "the practice script"}.\n`),
+    ),
+  );
   bash.registerCommand(
     defineCommand("z", async (args) =>
       ok(`zoxide would jump to the highest-ranked match for “${args.join(" ") || "…"}” on your Mac.\n`),
@@ -357,7 +482,7 @@ export function registerPracticeCommands(shell: BashShell): void {
 
 export function promptFor(cwd: string): string {
   const short = cwd
-    .replace("/home/benjamin/Developer/terminal-wizard", "terminal-wizard")
+    .replace(PRACTICE_ROOT, "dotfiles")
     .replace("/home/benjamin", "~");
-  return `\x1b[38;2;137;180;250m${short}\x1b[0m \x1b[38;2;166;227;161m❯\x1b[0m `;
+  return `\x1b[38;2;137;180;250m${short}\x1b[0m \x1b[38;2;166;227;161m❯❯❯\x1b[0m `;
 }

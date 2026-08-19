@@ -12,12 +12,15 @@ sources=(
   config/ghostty/config.ghostty
   config/herdr/config.toml
   config/mise/config.toml
+  config/mise/mise.lock
   config/starship/starship.toml
   config/git/gitconfig
   apply
   bin/dev-update
   bin/dev-doctor
   bin/configure-codex
+  bin/terminal-tutor
+  bin/terminal-tutor
 )
 targets=(
   .profile
@@ -29,12 +32,15 @@ targets=(
   .config/ghostty/config.ghostty
   .config/herdr/config.toml
   .config/mise/config.toml
+  .config/mise/mise.lock
   .config/starship.toml
   .gitconfig
   .local/bin/apply
   .local/bin/dev-update
   .local/bin/dev-doctor
   .local/bin/configure-codex
+  .local/bin/terminal-tutor
+  .local/bin/terminal-wizard
 )
 
 status=0

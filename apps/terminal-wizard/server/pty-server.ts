@@ -1,4 +1,5 @@
 import { createHmac, randomBytes } from "node:crypto";
+import { existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { homedir, userInfo } from "node:os";
 import { resolve } from "node:path";
@@ -12,18 +13,64 @@ const allowedOrigin = process.env.WIZARD_ALLOWED_ORIGIN ?? "http://127.0.0.1:431
 const sessionToken = process.env.WIZARD_SESSION_TOKEN ?? "";
 const expectedHost = `${host}:${port}`;
 const defaultIdleTimeoutMs = 20 * 60 * 1000;
+const defaultStartDeadlineMs = 10_000;
+const defaultAbsoluteSessionMs = 2 * 60 * 60 * 1000;
+function testDuration(name: string, fallback: number): number {
+  if (process.env.NODE_ENV !== "test") return fallback;
+  const configured = Number(process.env[name]);
+  return Number.isSafeInteger(configured) && configured >= 50 ? configured : fallback;
+}
 const idleTimeoutMs = (() => {
-  if (process.env.NODE_ENV !== "test") return defaultIdleTimeoutMs;
-  const configured = Number(process.env.WIZARD_TEST_IDLE_TIMEOUT_MS);
-  return Number.isSafeInteger(configured) && configured >= 50
-    ? configured
-    : defaultIdleTimeoutMs;
+  return testDuration("WIZARD_TEST_IDLE_TIMEOUT_MS", defaultIdleTimeoutMs);
 })();
+const startDeadlineMs = testDuration(
+  "WIZARD_TEST_START_DEADLINE_MS",
+  defaultStartDeadlineMs,
+);
+const absoluteSessionMs = testDuration(
+  "WIZARD_TEST_ABSOLUTE_SESSION_MS",
+  defaultAbsoluteSessionMs,
+);
 const ticketLifetimeMs = 30_000;
 const maximumBufferedOutput = 1_048_576;
+const allowedOriginUrl = (() => {
+  try {
+    const parsed = new URL(allowedOrigin);
+    if (
+      parsed.origin !== allowedOrigin ||
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      throw new Error("not an exact origin");
+    }
+    return parsed;
+  } catch {
+    throw new Error("WIZARD_ALLOWED_ORIGIN must be an exact origin without a path");
+  }
+})();
+const isLocalMode =
+  allowedOriginUrl.protocol === "http:" && allowedOriginUrl.hostname === "127.0.0.1";
+const shellWorkingDirectory = (() => {
+  const configured = process.env.WIZARD_WORKSPACE_ROOT;
+  if (!configured) return resolve(homedir());
+  const candidate = resolve(configured);
+  try {
+    return existsSync(candidate) && statSync(candidate).isDirectory()
+      ? candidate
+      : resolve(homedir());
+  } catch {
+    return resolve(homedir());
+  }
+})();
 
 if (!/^[a-f0-9]{64}$/.test(sessionToken)) {
   throw new Error("WIZARD_SESSION_TOKEN must be a fresh 32-byte hexadecimal value");
+}
+if (!isLocalMode) {
+  throw new Error("WIZARD_ALLOWED_ORIGIN must be an exact http://127.0.0.1 origin");
 }
 
 type ClientMessage =
@@ -40,6 +87,7 @@ type ServerMessage =
   | { type: "pong" };
 
 const tickets = new Map<string, number>();
+let socketReserved = false;
 
 function pruneTickets(now = Date.now()): void {
   for (const [ticket, expiresAt] of tickets) {
@@ -51,7 +99,7 @@ function mintTicket(): string {
   pruneTickets();
   const nonce = randomBytes(32).toString("base64url");
   const signature = createHmac("sha256", sessionToken).update(nonce).digest("base64url");
-  const ticket = `terminal-wizard.${nonce}.${signature}`;
+  const ticket = `terminal-tutor.${nonce}.${signature}`;
   tickets.set(ticket, Date.now() + ticketLifetimeMs);
   return ticket;
 }
@@ -72,7 +120,7 @@ function sendJson(response: ServerResponse, status: number, body: unknown, expos
   response.writeHead(status, {
     "Cache-Control": "no-store",
     "Content-Type": "application/json; charset=utf-8",
-    "Cross-Origin-Resource-Policy": "same-site",
+    "Cross-Origin-Resource-Policy": expose ? "cross-origin" : "same-site",
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
     ...(expose ? { "Access-Control-Allow-Origin": allowedOrigin, Vary: "Origin" } : {}),
@@ -100,7 +148,7 @@ function cleanShellEnvironment(): Record<string, string> {
     TERM: "xterm-ghostty",
     COLORTERM: "truecolor",
     TERM_PROGRAM: "ghostty",
-    TERMINAL_WIZARD: "live",
+    TERMINAL_TUTOR: "live",
   };
   for (const key of allowed) {
     const value = process.env[key];
@@ -159,7 +207,13 @@ function sendOutput(socket: WebSocket, data: string): void {
   }
 }
 
-const httpServer = createServer((request, response) => {
+let activeSocket: WebSocket | null = null;
+let activePty: pty.IPty | null = null;
+
+async function handleHttpRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<void> {
   if (!isLoopback(request) || request.headers.host !== expectedHost) {
     sendJson(response, 403, { error: "loopback only" });
     return;
@@ -167,20 +221,36 @@ const httpServer = createServer((request, response) => {
 
   const origin = request.headers.origin;
   const requestUrl = new URL(request.url ?? "/", `http://${host}:${port}`);
-  if (request.method === "GET" && requestUrl.pathname === "/health") {
-    sendJson(response, 200, { ready: true }, origin === allowedOrigin);
+  const exactPath = requestUrl.search === "" && requestUrl.hash === "";
+  if (
+    request.method === "GET"
+    && exactPath
+    && requestUrl.pathname === "/health"
+    && origin === undefined
+  ) {
+    sendJson(response, 200, { ready: true, mode: "local" });
     return;
   }
+
   if (
     request.method === "GET" &&
+    exactPath &&
     requestUrl.pathname === "/session" &&
     origin === allowedOrigin &&
-    !activeSocket
+    !activeSocket &&
+    !socketReserved
   ) {
     sendJson(response, 200, { protocol: mintTicket(), expiresInMs: ticketLifetimeMs }, true);
     return;
   }
   sendJson(response, 404, { error: "not found" });
+}
+
+const httpServer = createServer((request, response) => {
+  void handleHttpRequest(request, response).catch(() => {
+    if (!response.headersSent) sendJson(response, 500, { error: "request failed" });
+    else response.destroy();
+  });
 });
 httpServer.headersTimeout = 5_000;
 httpServer.requestTimeout = 10_000;
@@ -194,13 +264,20 @@ const socketServer = new WebSocketServer({
   clientTracking: true,
 });
 
-let activeSocket: WebSocket | null = null;
-let activePty: pty.IPty | null = null;
-
 socketServer.on("connection", (socket) => {
+  socketReserved = false;
   activeSocket = socket;
   let socketPty: pty.IPty | null = null;
   let idleTimer: NodeJS.Timeout;
+  const startTimer = setTimeout(() => {
+    if (socketPty) return;
+    send(socket, { type: "error", message: "Live Mac was not started in time." });
+    socket.close(1008, "start timeout");
+  }, startDeadlineMs);
+  const absoluteTimer = setTimeout(() => {
+    send(socket, { type: "error", message: "Live Mac reached its maximum session time." });
+    socket.close(1000, "session limit");
+  }, absoluteSessionMs);
   const resetIdleTimer = () => {
     clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
@@ -224,12 +301,13 @@ socketServer.on("connection", (socket) => {
 
     if (message.type === "start") {
       if (socketPty) return;
+      clearTimeout(startTimer);
       try {
         const spawnedPty = pty.spawn("/bin/zsh", ["-l"], {
           name: "xterm-ghostty",
           cols: message.cols,
           rows: message.rows,
-          cwd: resolve(homedir()),
+          cwd: shellWorkingDirectory,
           env: cleanShellEnvironment(),
         });
         socketPty = spawnedPty;
@@ -263,6 +341,8 @@ socketServer.on("connection", (socket) => {
 
   socket.on("close", () => {
     clearTimeout(idleTimer);
+    clearTimeout(startTimer);
+    clearTimeout(absoluteTimer);
     const ownedPty = socketPty;
     socketPty = null;
     if (activePty === ownedPty) activePty = null;
@@ -285,24 +365,39 @@ httpServer.on("upgrade", (request, socket, head) => {
     request.headers.host !== expectedHost ||
     origin !== allowedOrigin ||
     requestUrl.pathname !== "/terminal" ||
-    !consumeTicket(ticket) ||
-    activeSocket
+    requestUrl.search !== ""
   ) {
     socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
     socket.destroy();
     return;
   }
 
-  socketServer.handleUpgrade(request, socket, head, (webSocket) => {
-    socketServer.emit("connection", webSocket, request);
-  });
+  const acceptedTicket = consumeTicket(ticket);
+  if (!acceptedTicket || activeSocket || socketReserved) {
+    socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+
+  socketReserved = true;
+  try {
+    socketServer.handleUpgrade(request, socket, head, (webSocket) => {
+      socketServer.emit("connection", webSocket, request);
+    });
+  } catch {
+    socketReserved = false;
+    socket.destroy();
+  }
 });
 
 httpServer.listen(port, host, () => {
   console.log(`Live Mac service ready on http://${host}:${port} (loopback only)`);
 });
 
+let shuttingDown = false;
 function shutdown(): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
   activePty?.kill();
   activeSocket?.close(1001, "service stopping");
   socketServer.close();
