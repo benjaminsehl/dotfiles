@@ -4,6 +4,11 @@ set -euo pipefail
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$REPO_ROOT"
 
+command -v rg >/dev/null 2>&1 || {
+  printf 'ripgrep is required for the source and secret checks.\n' >&2
+  exit 1
+}
+
 bash -n apply bootstrap bin/configure-codex bin/dev-update bin/dev-doctor bin/terminal-tutor scripts/check-links scripts/check-manifest scripts/check-modes scripts/sync-manifest-versions scripts/sync-omp-completion
 zsh -n config/shell/profile config/shell/zprofile config/shell/zshrc config/shell/zlogin
 
@@ -66,7 +71,8 @@ grep -Fq 'The launcher keeps only the small production runtime after each build,
 grep -Fq 'for the local UI and shell service, then opens Chrome.' <<<"$launcher_help"
 
 scripts/check-manifest
-brew bundle list --formula --file "$REPO_ROOT/Brewfile" | grep -Fxq mole
+brew_formulae=$(brew bundle list --formula --file "$REPO_ROOT/Brewfile")
+grep -Fxq mole <<<"$brew_formulae"
 git check-ignore -q -- config/mole/whitelist
 git check-ignore -q -- Library/Logs/mole/operations.log
 

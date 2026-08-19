@@ -18,7 +18,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/terminal-wizard/package-lock.json
       - name: Install validators
-        run: brew install shellcheck gitleaks jq
+        run: brew install shellcheck gitleaks jq ripgrep
       - name: Test dotfiles
         run: ./scripts/test
       - name: Install Terminal Tutor
